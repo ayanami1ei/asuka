@@ -6,7 +6,7 @@ pub struct Span{pub sl:u32,pub sc:u32,pub el:u32,pub ec:u32}
 impl Span{pub fn d()->Self{Self{sl:0,sc:0,el:0,ec:0}}pub fn mg(&self,o:&Span)->Self{Self{sl:self.sl,sc:self.sc,el:o.el,ec:o.ec}}}
 
 #[derive(Clone,PartialEq,Debug)]
-pub enum TK{Ident,IntLit,StrLit,Fn,Let,Ret,If,El,T,F,Wh,Fr,In,Mt,En,St,KINTERFACE,Im,Pb,Sh,Uq,Wk,Ex,Ip,As,Br,Co,Mut,Plus,Minus,Star,Slash,Pct,EqEq,Ne,Lt,Gt,Le,Ge,Eq,LBK,RBK,S,LB,RB,LP,RP,LBK,RBK,C,Colon,CC,Ar,FA,Us,Dt,EOF}
+pub enum TK{Ident,IntLit,StrLit,Fn,Let,Ret,If,El,T,F,Wh,Fr,In,Mt,En,St,KINTERFACE,Im,Pb,Sh,Uq,Wk,Ex,Ip,As,Br,Co,Mut,Eq,Ne,Pct,S,LP,C,Slash,RB,CC,Le,Colon,Ar,Star,LBK,FA,RBK,Minus,Lt,Us,Dt,LB,Plus,Ge,RP,EqEq,Gt,EOF}
 
 #[derive(Clone,Debug)]
 pub struct Tok{pub k:TK,pub s:Span,pub v:String}
@@ -18,33 +18,41 @@ pub fn tkz(&mut self)->Vec<Tok>{let mut t=Vec::new();loop{self.skip();if self.p>
 '"'=>t.push(self.rs()),
 c if c.is_ascii_digit()=>t.push(self.rn()),
 c if c.is_alphabetic()||c=='_'=>t.push(self.ri()),
-'='=>t.push(self.rf("==",TK::EqEq)),
 '!'=>t.push(self.rf("!=",TK::Ne)),
-'<'=>t.push(self.rf("<=",TK::Le)),
-'>'=>t.push(self.rf(">=",TK::Ge)),
-':'=>t.push(self.rf("::",TK::CC)),
-'-'=>t.push(self.rf("->",TK::Ar)),
-'='=>t.push(self.rf("=>",TK::FA)),
-'+'=>t.push(self.rf("+",TK::Plus)),
-'-'=>t.push(self.rf("-",TK::Minus)),
-'*'=>t.push(self.rf("*",TK::Star)),
-'/'=>t.push(self.rf("/",TK::Slash)),
 '%'=>t.push(self.rf("%",TK::Pct)),
-'<'=>t.push(self.rf("<",TK::Lt)),
-'>'=>t.push(self.rf(">",TK::Gt)),
-'='=>t.push(self.rf("=",TK::Eq)),
-'['=>t.push(self.rf("[",TK::LBK)),
-']'=>t.push(self.rf("]",TK::RBK)),
-';'=>t.push(self.rf(";",TK::S)),
-'{'=>t.push(self.rf("{",TK::LB)),
-'}'=>t.push(self.rf("}",TK::RB)),
 '('=>t.push(self.rf("(",TK::LP)),
 ')'=>t.push(self.rf(")",TK::RP)),
+'*'=>t.push(self.rf("*",TK::Star)),
+'+'=>t.push(self.rf("+",TK::Plus)),
+','=>t.push(self.rf(",",TK::C)),
+'-'=>{
+if self.p+1<self.c.len()&&self.c[self.p+1]=='>'{t.push(self.rf("->",TK::Ar))}
+else{t.push(self.rf("-",TK::Minus))}
+}
+'.'=>t.push(self.rf(".",TK::Dt)),
+'/'=>t.push(self.rf("/",TK::Slash)),
+':'=>{
+if self.p+1<self.c.len()&&self.c[self.p+1]==':'{t.push(self.rf("::",TK::CC))}
+else{t.push(self.rf(":",TK::Colon))}
+}
+';'=>t.push(self.rf(";",TK::S)),
+'<'=>{
+if self.p+1<self.c.len()&&self.c[self.p+1]=='='{t.push(self.rf("<=",TK::Le))}
+else{t.push(self.rf("<",TK::Lt))}
+}
+'='=>{
+if self.p+1<self.c.len()&&self.c[self.p+1]=='>'{t.push(self.rf("=>",TK::FA))}
+if self.p+1<self.c.len()&&self.c[self.p+1]=='='{t.push(self.rf("==",TK::EqEq))}
+else{t.push(self.rf("=",TK::Eq))}
+}
+'>'=>{
+if self.p+1<self.c.len()&&self.c[self.p+1]=='='{t.push(self.rf(">=",TK::Ge))}
+else{t.push(self.rf(">",TK::Gt))}
+}
 '['=>t.push(self.rf("[",TK::LBK)),
 ']'=>t.push(self.rf("]",TK::RBK)),
-','=>t.push(self.rf(",",TK::C)),
-':'=>t.push(self.rf(":",TK::Colon)),
-'.'=>t.push(self.rf(".",TK::Dt)),
+'{'=>t.push(self.rf("{",TK::LB)),
+'}'=>t.push(self.rf("}",TK::RB)),
 _=>panic!("bad '{}'",self.c[self.p])}}
 t.push(Tok{k:TK::EOF,s:Span::d(),v:String::new()});t}
 fn skip(&mut self){loop{let c=self.c.get(self.p);match c{Some(' '|'\t'|'\r')=>{self.p+=1;self.col+=1;}Some('\n')=>{self.p+=1;self.l+=1;self.col=1;}Some('/')if self.p+1<self.c.len()&&self.c[self.p+1]=='/'=>{while self.p<self.c.len(){if self.c[self.p]=='\n'{break}self.p+=1;}}_=>{break}}}}
@@ -59,9 +67,11 @@ fn rf(&mut self,s:&str,k:TK)->Tok{let(sl,sc)=(self.l,self.col);self.p+=s.len();s
 pub struct AIdent{pub s:Span,pub v:String}
 #[derive(Clone,Debug)]
 pub struct AInt{pub s:Span,pub v:i64}
+#[derive(Clone,Debug)]
+pub struct AStringLiteral{pub s:Span,pub v:String}
 
 #[derive(Clone,Debug)]
-pub enum AN{Ident(Box<AIdent>),Int(Box<AInt>),Program(Box<AProgram>),Item(Box<AItem>),Import(Box<AImport>),FnDecl(Box<AFnDecl>),FnParam(Box<AFnParam>),ParamList(Box<AParamList>),Vis(Box<AVis>),StructDef(Box<AStructDef>),Field(Box<AField>),FieldList(Box<AFieldList>),EnumDef(Box<AEnumDef>),Variant(Box<AVariant>),VariantList(Box<AVariantList>),InterfaceDef(Box<AInterfaceDef>),IfaceMethod(Box<AIfaceMethod>),SelfParam(Box<ASelfParam>),ImplBlock(Box<AImplBlock>),Method(Box<AMethod>),GenericParams(Box<AGenericParams>),GenericParam(Box<AGenericParam>),Type(Box<AType>),TypeBase(Box<ATypeBase>),SharedType(Box<ASharedType>),UniqueType(Box<AUniqueType>),WeakType(Box<AWeakType>),FnType(Box<AFnType>),ArrayType(Box<AArrayType>),TypeList(Box<ATypeList>),Block(Box<ABlock>),Stmt(Box<AStmt>),VarDecl(Box<AVarDecl>),ReturnStmt(Box<AReturnStmt>),IfStmt(Box<AIfStmt>),WhileStmt(Box<AWhileStmt>),ForStmt(Box<AForStmt>),MatchStmt(Box<AMatchStmt>),MatchArm(Box<AMatchArm>),BreakStmt(Box<ABreakStmt>),ContinueStmt(Box<AContinueStmt>),ExprStmt(Box<AExprStmt>),Pattern(Box<APattern>),PatternArgs(Box<APatternArgs>),Expr(Box<AExpr>),BinaryExpr(Box<ABinaryExpr>),UnaryExpr(Box<AUnaryExpr>),CallExpr(Box<ACallExpr>),FieldExpr(Box<AFieldExpr>),IndexExpr(Box<AIndexExpr>),MatchExpr(Box<AMatchExpr>),IfExpr(Box<AIfExpr>),BlockExpr(Box<ABlockExpr>),StructLiteral(Box<AStructLiteral>),FieldInit(Box<AFieldInit>),FieldInitList(Box<AFieldInitList>),ArrayLiteral(Box<AArrayLiteral>),ExprList(Box<AExprList>),BoolLiteral(Box<ABoolLiteral>),}
+pub enum AN{Ident(Box<AIdent>),Int(Box<AInt>),StringLiteral(Box<AStringLiteral>),Program(Box<AProgram>),Item(Box<AItem>),Import(Box<AImport>),FnDecl(Box<AFnDecl>),FnParam(Box<AFnParam>),ParamList(Box<AParamList>),Vis(Box<AVis>),StructDef(Box<AStructDef>),Field(Box<AField>),FieldList(Box<AFieldList>),EnumDef(Box<AEnumDef>),Variant(Box<AVariant>),VariantList(Box<AVariantList>),InterfaceDef(Box<AInterfaceDef>),IfaceMethod(Box<AIfaceMethod>),SelfParam(Box<ASelfParam>),ImplBlock(Box<AImplBlock>),Method(Box<AMethod>),GenericParams(Box<AGenericParams>),GenericParam(Box<AGenericParam>),Type(Box<AType>),TypeBase(Box<ATypeBase>),SharedType(Box<ASharedType>),UniqueType(Box<AUniqueType>),WeakType(Box<AWeakType>),FnType(Box<AFnType>),ArrayType(Box<AArrayType>),TypeList(Box<ATypeList>),Block(Box<ABlock>),Stmt(Box<AStmt>),VarDecl(Box<AVarDecl>),ReturnStmt(Box<AReturnStmt>),IfStmt(Box<AIfStmt>),WhileStmt(Box<AWhileStmt>),ForStmt(Box<AForStmt>),MatchStmt(Box<AMatchStmt>),MatchArm(Box<AMatchArm>),BreakStmt(Box<ABreakStmt>),ContinueStmt(Box<AContinueStmt>),ExprStmt(Box<AExprStmt>),Pattern(Box<APattern>),PatternArgs(Box<APatternArgs>),Expr(Box<AExpr>),BinaryExpr(Box<ABinaryExpr>),UnaryExpr(Box<AUnaryExpr>),CallExpr(Box<ACallExpr>),FieldExpr(Box<AFieldExpr>),IndexExpr(Box<AIndexExpr>),MatchExpr(Box<AMatchExpr>),IfExpr(Box<AIfExpr>),BlockExpr(Box<ABlockExpr>),StructLiteral(Box<AStructLiteral>),FieldInit(Box<AFieldInit>),FieldInitList(Box<AFieldInitList>),ArrayLiteral(Box<AArrayLiteral>),ExprList(Box<AExprList>),BoolLiteral(Box<ABoolLiteral>),}
 
 #[derive(Clone,Debug)]
 pub struct AProgram{pub s:Span,pub item:Vec<AN>,}
@@ -73,16 +83,16 @@ pub struct AItem{pub s:Span,}
 pub struct AImport{pub s:Span,pub string_literal:Box<AN>,}
 
 #[derive(Clone,Debug)]
-pub struct AFnDecl{pub s:Span,pub vis:Box<AN>,pub ident:Box<AN>,pub generic_params:Box<AN>,pub param_list:Box<AN>,pub :Box<AN>,pub block:Box<AN>,}
+pub struct AFnDecl{pub s:Span,pub vis:Box<AN>,pub ident:Box<AN>,pub generic_params:Box<AN>,pub param_list:Box<AN>,pub block:Box<AN>,}
 
 #[derive(Clone,Debug)]
 pub struct AFnParam{pub s:Span,pub typ:Box<AN>,pub ident:Box<AN>,}
 
 #[derive(Clone,Debug)]
-pub struct AParamList{pub s:Span,pub fn_param:Box<AN>,pub :Vec<AN>,}
+pub struct AParamList{pub s:Span,pub fn_param:Box<AN>,}
 
 #[derive(Clone,Debug)]
-pub struct AVis{pub s:Span,pub :Box<AN>,}
+pub struct AVis{pub s:Span,}
 
 #[derive(Clone,Debug)]
 pub struct AStructDef{pub s:Span,pub vis:Box<AN>,pub ident:Box<AN>,pub generic_params:Box<AN>,pub field_list:Box<AN>,}
@@ -97,37 +107,37 @@ pub struct AFieldList{pub s:Span,pub field:Vec<AN>,}
 pub struct AEnumDef{pub s:Span,pub vis:Box<AN>,pub ident:Box<AN>,pub generic_params:Box<AN>,pub variant_list:Box<AN>,}
 
 #[derive(Clone,Debug)]
-pub struct AVariant{pub s:Span,pub ident:Box<AN>,pub :Box<AN>,}
+pub struct AVariant{pub s:Span,pub ident:Box<AN>,}
 
 #[derive(Clone,Debug)]
-pub struct AVariantList{pub s:Span,pub variant:Box<AN>,pub :Vec<AN>,}
+pub struct AVariantList{pub s:Span,pub variant:Box<AN>,}
 
 #[derive(Clone,Debug)]
 pub struct AInterfaceDef{pub s:Span,pub vis:Box<AN>,pub ident:Box<AN>,pub generic_params:Box<AN>,pub iface_method_list:Box<AN>,}
 
 #[derive(Clone,Debug)]
-pub struct AIfaceMethod{pub s:Span,pub ident:Box<AN>,pub self_param:Box<AN>,pub param_list:Box<AN>,pub :Box<AN>,}
+pub struct AIfaceMethod{pub s:Span,pub ident:Box<AN>,pub self_param:Box<AN>,pub param_list:Box<AN>,}
 
 #[derive(Clone,Debug)]
-pub struct ASelfParam{pub s:Span,pub :Box<AN>,}
+pub struct ASelfParam{pub s:Span,}
 
 #[derive(Clone,Debug)]
-pub struct AImplBlock{pub s:Span,pub vis:Box<AN>,pub generic_params:Box<AN>,pub typ:Box<AN>,pub :Box<AN>,}
+pub struct AImplBlock{pub s:Span,pub vis:Box<AN>,pub generic_params:Box<AN>,pub typ:Box<AN>,}
 
 #[derive(Clone,Debug)]
-pub struct AMethod{pub s:Span,pub vis:Box<AN>,pub ident:Box<AN>,pub generic_params:Box<AN>,pub self_param:Box<AN>,pub param_list:Box<AN>,pub :Box<AN>,pub block:Box<AN>,}
+pub struct AMethod{pub s:Span,pub vis:Box<AN>,pub ident:Box<AN>,pub generic_params:Box<AN>,pub self_param:Box<AN>,pub param_list:Box<AN>,pub block:Box<AN>,}
 
 #[derive(Clone,Debug)]
-pub struct AGenericParams{pub s:Span,pub generic_param:Box<AN>,pub :Vec<AN>,}
+pub struct AGenericParams{pub s:Span,pub generic_param:Box<AN>,}
 
 #[derive(Clone,Debug)]
-pub struct AGenericParam{pub s:Span,pub ident:Box<AN>,pub :Box<AN>,}
+pub struct AGenericParam{pub s:Span,pub ident:Box<AN>,}
 
 #[derive(Clone,Debug)]
 pub struct AType{pub s:Span,}
 
 #[derive(Clone,Debug)]
-pub struct ATypeBase{pub s:Span,pub ident:Box<AN>,pub :Box<AN>,}
+pub struct ATypeBase{pub s:Span,pub ident:Box<AN>,}
 
 #[derive(Clone,Debug)]
 pub struct ASharedType{pub s:Span,pub typ:Box<AN>,}
@@ -139,13 +149,13 @@ pub struct AUniqueType{pub s:Span,pub typ:Box<AN>,}
 pub struct AWeakType{pub s:Span,pub typ:Box<AN>,}
 
 #[derive(Clone,Debug)]
-pub struct AFnType{pub s:Span,pub type_list:Box<AN>,pub :Box<AN>,}
+pub struct AFnType{pub s:Span,pub type_list:Box<AN>,}
 
 #[derive(Clone,Debug)]
-pub struct AArrayType{pub s:Span,pub typ:Box<AN>,pub :Box<AN>,}
+pub struct AArrayType{pub s:Span,pub typ:Box<AN>,}
 
 #[derive(Clone,Debug)]
-pub struct ATypeList{pub s:Span,pub typ:Box<AN>,pub :Vec<AN>,}
+pub struct ATypeList{pub s:Span,pub typ:Box<AN>,}
 
 #[derive(Clone,Debug)]
 pub struct ABlock{pub s:Span,pub stmt:Vec<AN>,}
@@ -160,7 +170,7 @@ pub struct AVarDecl{pub s:Span,pub ident:Box<AN>,pub expr:Box<AN>,}
 pub struct AReturnStmt{pub s:Span,pub expr:Box<AN>,}
 
 #[derive(Clone,Debug)]
-pub struct AIfStmt{pub s:Span,pub expr:Box<AN>,pub block:Box<AN>,pub :Box<AN>,}
+pub struct AIfStmt{pub s:Span,pub expr:Box<AN>,pub block:Box<AN>,}
 
 #[derive(Clone,Debug)]
 pub struct AWhileStmt{pub s:Span,pub expr:Box<AN>,pub block:Box<AN>,}
@@ -184,10 +194,10 @@ pub struct AContinueStmt{pub s:Span,}
 pub struct AExprStmt{pub s:Span,pub expr:Box<AN>,}
 
 #[derive(Clone,Debug)]
-pub struct APattern{pub s:Span,pub ident:Box<AN>,pub :Box<AN>,}
+pub struct APattern{pub s:Span,pub ident:Box<AN>,}
 
 #[derive(Clone,Debug)]
-pub struct APatternArgs{pub s:Span,pub pattern:Box<AN>,pub :Vec<AN>,}
+pub struct APatternArgs{pub s:Span,pub pattern:Box<AN>,}
 
 #[derive(Clone,Debug)]
 pub struct AExpr{pub s:Span,}
@@ -196,7 +206,7 @@ pub struct AExpr{pub s:Span,}
 pub struct ABinaryExpr{pub s:Span,pub expr:Box<AN>,pub operator:Box<AN>,pub expr_1:Box<AN>,}
 
 #[derive(Clone,Debug)]
-pub struct AUnaryExpr{pub s:Span,pub :Box<AN>,pub expr:Box<AN>,}
+pub struct AUnaryExpr{pub s:Span,pub expr:Box<AN>,}
 
 #[derive(Clone,Debug)]
 pub struct ACallExpr{pub s:Span,pub ident:Box<AN>,pub expr_list:Box<AN>,}
@@ -211,7 +221,7 @@ pub struct AIndexExpr{pub s:Span,pub expr:Box<AN>,pub expr_1:Box<AN>,}
 pub struct AMatchExpr{pub s:Span,pub expr:Box<AN>,pub match_arm:Vec<AN>,}
 
 #[derive(Clone,Debug)]
-pub struct AIfExpr{pub s:Span,pub expr:Box<AN>,pub block:Box<AN>,pub :Box<AN>,}
+pub struct AIfExpr{pub s:Span,pub expr:Box<AN>,pub block:Box<AN>,}
 
 #[derive(Clone,Debug)]
 pub struct ABlockExpr{pub s:Span,pub block:Box<AN>,}
@@ -223,13 +233,13 @@ pub struct AStructLiteral{pub s:Span,pub typ:Box<AN>,pub field_init_list:Box<AN>
 pub struct AFieldInit{pub s:Span,pub ident:Box<AN>,pub expr:Box<AN>,}
 
 #[derive(Clone,Debug)]
-pub struct AFieldInitList{pub s:Span,pub field_init:Box<AN>,pub :Vec<AN>,}
+pub struct AFieldInitList{pub s:Span,pub field_init:Box<AN>,}
 
 #[derive(Clone,Debug)]
 pub struct AArrayLiteral{pub s:Span,pub expr_list:Box<AN>,}
 
 #[derive(Clone,Debug)]
-pub struct AExprList{pub s:Span,pub expr:Box<AN>,pub :Vec<AN>,}
+pub struct AExprList{pub s:Span,pub expr:Box<AN>,}
 
 #[derive(Clone,Debug)]
 pub struct ABoolLiteral{pub s:Span,}
@@ -239,9 +249,11 @@ pub struct ABoolLiteral{pub s:Span,}
 pub struct HIdent{pub s:Span}
 #[derive(Clone,Debug)]
 pub struct HInt{pub s:Span,pub v:i64}
+#[derive(Clone,Debug)]
+pub struct HStringLiteral{pub s:Span,pub v:String}
 
 #[derive(Clone,Debug)]
-pub enum HN{Ident(Box<HIdent>),Int(Box<HInt>)}
+pub enum HN{Ident(Box<HIdent>),Int(Box<HInt>),StringLiteral(Box<HStringLiteral>)}
 
 // Parser
 pub struct P{pub t:Vec<Tok>,pub p:usize}
@@ -279,23 +291,22 @@ Err(format!("no alt for Item at {}",self.tok().s.sl))
 }
 pub fn pimport(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
-self.e(TK::O_696d706f7274)?;
+self.e(TK::Ip)?;
 let a0=self.ps()?;
 self.e(TK::S)?;
 Ok(AN::Import(Box::new(AImport {s:Span::d(),string_literal:Box::new(a0),})))
 }
 pub fn pfn_decl(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
-let a0=self.pvis().ok();
-self.e(TK::O_666e)?;
-let a1=self.pi()?;
-let a2=self.pgeneric_params().ok();
+let _ = self.pvis();
+self.e(TK::Fn)?;
+let a0=self.pi()?;
+let _ = self.pgeneric_params();
 self.e(TK::LP)?;
-let a3=self.pparam_list()?;
+let a1=self.pparam_list()?;
 self.e(TK::RP)?;
-let a4=self.p().ok();
-let a5=self.pblock()?;
-Ok(AN::FnDecl(Box::new(AFnDecl {s:Span::d(),vis:Box::new(a0),ident:Box::new(a1),generic_params:Box::new(a2),param_list:Box::new(a3),:Box::new(a4),block:Box::new(a5),})))
+let a2=self.pblock()?;
+Ok(AN::FnDecl(Box::new(AFnDecl {s:Span::d(),ident:Box::new(a0),param_list:Box::new(a1),block:Box::new(a2),})))
 }
 pub fn pfn_param(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
@@ -306,26 +317,23 @@ Ok(AN::FnParam(Box::new(AFnParam {s:Span::d(),typ:Box::new(a0),ident:Box::new(a1
 pub fn pparam_list(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
 let a0=self.pfn_param()?;
-let mut s:Vec<AN>=Vec::new();
-while let Ok(v)=self.p(){s.push(v)}
-Ok(AN::ParamList(Box::new(AParamList {s:Span::d(),fn_param:Box::new(a0),:s,})))
+Ok(AN::ParamList(Box::new(AParamList {s:Span::d(),fn_param:Box::new(a0),})))
 }
 pub fn pvis(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
-self.e(TK::O_707562)?;
-let a0=self.p().ok();
-Ok(AN::Vis(Box::new(AVis {s:Span::d(),:Box::new(a0),})))
+self.e(TK::Pb)?;
+Ok(AN::Vis(Box::new(AVis {s:Span::d(),})))
 }
 pub fn pstruct_def(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
-let a0=self.pvis().ok();
-self.e(TK::O_737472756374)?;
-let a1=self.pi()?;
-let a2=self.pgeneric_params().ok();
+let _ = self.pvis();
+self.e(TK::St)?;
+let a0=self.pi()?;
+let _ = self.pgeneric_params();
 self.e(TK::LB)?;
-let a3=self.pfield_list()?;
+let a1=self.pfield_list()?;
 self.e(TK::RB)?;
-Ok(AN::StructDef(Box::new(AStructDef {s:Span::d(),vis:Box::new(a0),ident:Box::new(a1),generic_params:Box::new(a2),field_list:Box::new(a3),})))
+Ok(AN::StructDef(Box::new(AStructDef {s:Span::d(),ident:Box::new(a0),field_list:Box::new(a1),})))
 }
 pub fn pfield(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
@@ -341,96 +349,87 @@ Ok(AN::FieldList(Box::new(AFieldList {s:Span::d(),field:fields,})))
 }
 pub fn penum_def(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
-let a0=self.pvis().ok();
-self.e(TK::O_656e756d)?;
-let a1=self.pi()?;
-let a2=self.pgeneric_params().ok();
+let _ = self.pvis();
+self.e(TK::En)?;
+let a0=self.pi()?;
+let _ = self.pgeneric_params();
 self.e(TK::LB)?;
-let a3=self.pvariant_list()?;
+let a1=self.pvariant_list()?;
 self.e(TK::RB)?;
-Ok(AN::EnumDef(Box::new(AEnumDef {s:Span::d(),vis:Box::new(a0),ident:Box::new(a1),generic_params:Box::new(a2),variant_list:Box::new(a3),})))
+Ok(AN::EnumDef(Box::new(AEnumDef {s:Span::d(),ident:Box::new(a0),variant_list:Box::new(a1),})))
 }
 pub fn pvariant(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
 let a0=self.pi()?;
-let a1=self.p().ok();
-Ok(AN::Variant(Box::new(AVariant {s:Span::d(),ident:Box::new(a0),:Box::new(a1),})))
+Ok(AN::Variant(Box::new(AVariant {s:Span::d(),ident:Box::new(a0),})))
 }
 pub fn pvariant_list(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
 let a0=self.pvariant()?;
-let mut s:Vec<AN>=Vec::new();
-while let Ok(v)=self.p(){s.push(v)}
-Ok(AN::VariantList(Box::new(AVariantList {s:Span::d(),variant:Box::new(a0),:s,})))
+Ok(AN::VariantList(Box::new(AVariantList {s:Span::d(),variant:Box::new(a0),})))
 }
 pub fn pinterface_def(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
-let a0=self.pvis().ok();
-self.e(TK::O_696e74657266616365)?;
-let a1=self.pi()?;
-let a2=self.pgeneric_params().ok();
+let _ = self.pvis();
+self.e(TK::KINTERFACE)?;
+let a0=self.pi()?;
+let _ = self.pgeneric_params();
 self.e(TK::LB)?;
-let a3=self.pi()?;
+let a1=self.pi()?;
 self.e(TK::RB)?;
-Ok(AN::InterfaceDef(Box::new(AInterfaceDef {s:Span::d(),vis:Box::new(a0),ident:Box::new(a1),generic_params:Box::new(a2),iface_method_list:Box::new(a3),})))
+Ok(AN::InterfaceDef(Box::new(AInterfaceDef {s:Span::d(),ident:Box::new(a0),iface_method_list:Box::new(a1),})))
 }
 pub fn piface_method(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
-self.e(TK::O_666e)?;
+self.e(TK::Fn)?;
 let a0=self.pi()?;
 self.e(TK::LP)?;
 let a1=self.pself_param()?;
 self.e(TK::C)?;
 let a2=self.pparam_list()?;
 self.e(TK::RP)?;
-let a3=self.p().ok();
 self.e(TK::S)?;
-Ok(AN::IfaceMethod(Box::new(AIfaceMethod {s:Span::d(),ident:Box::new(a0),self_param:Box::new(a1),param_list:Box::new(a2),:Box::new(a3),})))
+Ok(AN::IfaceMethod(Box::new(AIfaceMethod {s:Span::d(),ident:Box::new(a0),self_param:Box::new(a1),param_list:Box::new(a2),})))
 }
 pub fn pself_param(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
-let a0=self.pi()?;
-self.e(TK::O_73656c66)?;
-Ok(AN::SelfParam(Box::new(ASelfParam {s:Span::d(),:Box::new(a0),})))
+//TODO
+self.e(TK::KSELF)?;
+Ok(AN::SelfParam(Box::new(ASelfParam {s:Span::d(),})))
 }
 pub fn pimpl_block(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
-let a0=self.pvis().ok();
-self.e(TK::O_696d706c)?;
-let a1=self.pgeneric_params().ok();
-let a2=self.ptyp()?;
-let a3=self.p().ok();
-Ok(AN::ImplBlock(Box::new(AImplBlock {s:Span::d(),vis:Box::new(a0),generic_params:Box::new(a1),typ:Box::new(a2),:Box::new(a3),})))
+let _ = self.pvis();
+self.e(TK::Im)?;
+let _ = self.pgeneric_params();
+let a0=self.ptyp()?;
+Ok(AN::ImplBlock(Box::new(AImplBlock {s:Span::d(),typ:Box::new(a0),})))
 }
 pub fn pmethod(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
-let a0=self.pvis().ok();
-self.e(TK::O_666e)?;
-let a1=self.pi()?;
-let a2=self.pgeneric_params().ok();
+let _ = self.pvis();
+self.e(TK::Fn)?;
+let a0=self.pi()?;
+let _ = self.pgeneric_params();
 self.e(TK::LP)?;
-let a3=self.pself_param()?;
+let a1=self.pself_param()?;
 self.e(TK::C)?;
-let a4=self.pparam_list()?;
+let a2=self.pparam_list()?;
 self.e(TK::RP)?;
-let a5=self.p().ok();
-let a6=self.pblock()?;
-Ok(AN::Method(Box::new(AMethod {s:Span::d(),vis:Box::new(a0),ident:Box::new(a1),generic_params:Box::new(a2),self_param:Box::new(a3),param_list:Box::new(a4),:Box::new(a5),block:Box::new(a6),})))
+let a3=self.pblock()?;
+Ok(AN::Method(Box::new(AMethod {s:Span::d(),ident:Box::new(a0),self_param:Box::new(a1),param_list:Box::new(a2),block:Box::new(a3),})))
 }
 pub fn pgeneric_params(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
 self.e(TK::LBK)?;
 let a0=self.pgeneric_param()?;
-let mut s:Vec<AN>=Vec::new();
-while let Ok(v)=self.p(){s.push(v)}
 self.e(TK::RBK)?;
-Ok(AN::GenericParams(Box::new(AGenericParams {s:Span::d(),generic_param:Box::new(a0),:s,})))
+Ok(AN::GenericParams(Box::new(AGenericParams {s:Span::d(),generic_param:Box::new(a0),})))
 }
 pub fn pgeneric_param(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
 let a0=self.pi()?;
-let a1=self.p().ok();
-Ok(AN::GenericParam(Box::new(AGenericParam {s:Span::d(),ident:Box::new(a0),:Box::new(a1),})))
+Ok(AN::GenericParam(Box::new(AGenericParam {s:Span::d(),ident:Box::new(a0),})))
 }
 pub fn ptyp(&mut self)->Result<AN,String>{
 if let Ok(v)=self.ptype_base(){return Ok(v)}
@@ -444,50 +443,45 @@ Err(format!("no alt for Type at {}",self.tok().s.sl))
 pub fn ptype_base(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
 let a0=self.pi()?;
-let a1=self.p().ok();
-Ok(AN::TypeBase(Box::new(ATypeBase {s:Span::d(),ident:Box::new(a0),:Box::new(a1),})))
+Ok(AN::TypeBase(Box::new(ATypeBase {s:Span::d(),ident:Box::new(a0),})))
 }
 pub fn pshared_type(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
-self.e(TK::O_736861726564)?;
+self.e(TK::Sh)?;
 let a0=self.ptyp()?;
 Ok(AN::SharedType(Box::new(ASharedType {s:Span::d(),typ:Box::new(a0),})))
 }
 pub fn punique_type(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
-self.e(TK::O_756e69717565)?;
+self.e(TK::Uq)?;
 let a0=self.ptyp()?;
 Ok(AN::UniqueType(Box::new(AUniqueType {s:Span::d(),typ:Box::new(a0),})))
 }
 pub fn pweak_type(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
-self.e(TK::O_7765616b)?;
+self.e(TK::Wk)?;
 let a0=self.ptyp()?;
 Ok(AN::WeakType(Box::new(AWeakType {s:Span::d(),typ:Box::new(a0),})))
 }
 pub fn pfn_type(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
-self.e(TK::O_666e)?;
+self.e(TK::Fn)?;
 self.e(TK::LP)?;
-let a0=self.ptype_list().ok();
+let _ = self.ptype_list();
 self.e(TK::RP)?;
-let a1=self.p().ok();
-Ok(AN::FnType(Box::new(AFnType {s:Span::d(),type_list:Box::new(a0),:Box::new(a1),})))
+Ok(AN::FnType(Box::new(AFnType {s:Span::d(),})))
 }
 pub fn parray_type(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
 self.e(TK::LBK)?;
 let a0=self.ptyp()?;
-let a1=self.p().ok();
 self.e(TK::RBK)?;
-Ok(AN::ArrayType(Box::new(AArrayType {s:Span::d(),typ:Box::new(a0),:Box::new(a1),})))
+Ok(AN::ArrayType(Box::new(AArrayType {s:Span::d(),typ:Box::new(a0),})))
 }
 pub fn ptype_list(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
 let a0=self.ptyp()?;
-let mut s:Vec<AN>=Vec::new();
-while let Ok(v)=self.p(){s.push(v)}
-Ok(AN::TypeList(Box::new(ATypeList {s:Span::d(),typ:Box::new(a0),:s,})))
+Ok(AN::TypeList(Box::new(ATypeList {s:Span::d(),typ:Box::new(a0),})))
 }
 pub fn pblock(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
@@ -520,31 +514,30 @@ Ok(AN::VarDecl(Box::new(AVarDecl {s:Span::d(),ident:Box::new(a0),expr:Box::new(a
 }
 pub fn preturn_stmt(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
-self.e(TK::O_72657475726e)?;
-let a0=self.pexpr().ok();
+self.e(TK::Ret)?;
+let _ = self.pexpr();
 self.e(TK::S)?;
-Ok(AN::ReturnStmt(Box::new(AReturnStmt {s:Span::d(),expr:Box::new(a0),})))
+Ok(AN::ReturnStmt(Box::new(AReturnStmt {s:Span::d(),})))
 }
 pub fn pif_stmt(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
-self.e(TK::O_6966)?;
+self.e(TK::If)?;
 let a0=self.pexpr()?;
 let a1=self.pblock()?;
-let a2=self.p().ok();
-Ok(AN::IfStmt(Box::new(AIfStmt {s:Span::d(),expr:Box::new(a0),block:Box::new(a1),:Box::new(a2),})))
+Ok(AN::IfStmt(Box::new(AIfStmt {s:Span::d(),expr:Box::new(a0),block:Box::new(a1),})))
 }
 pub fn pwhile_stmt(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
-self.e(TK::O_7768696c65)?;
+self.e(TK::Wh)?;
 let a0=self.pexpr()?;
 let a1=self.pblock()?;
 Ok(AN::WhileStmt(Box::new(AWhileStmt {s:Span::d(),expr:Box::new(a0),block:Box::new(a1),})))
 }
 pub fn pfor_stmt(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
-self.e(TK::O_666f72)?;
+self.e(TK::Fr)?;
 let a0=self.pi()?;
-self.e(TK::O_696e)?;
+self.e(TK::In)?;
 self.e(TK::LP)?;
 let a1=self.pexpr()?;
 self.e(TK::C)?;
@@ -555,7 +548,7 @@ Ok(AN::ForStmt(Box::new(AForStmt {s:Span::d(),ident:Box::new(a0),expr:Box::new(a
 }
 pub fn pmatch_stmt(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
-self.e(TK::O_6d61746368)?;
+self.e(TK::Mt)?;
 let a0=self.pexpr()?;
 self.e(TK::LB)?;
 let mut match_arms:Vec<AN>=Vec::new();
@@ -573,13 +566,13 @@ Ok(AN::MatchArm(Box::new(AMatchArm {s:Span::d(),pattern:Box::new(a0),expr:Box::n
 }
 pub fn pbreak_stmt(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
-self.e(TK::O_627265616b)?;
+self.e(TK::Br)?;
 self.e(TK::S)?;
 Ok(AN::BreakStmt(Box::new(ABreakStmt {s:Span::d(),})))
 }
 pub fn pcontinue_stmt(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
-self.e(TK::O_636f6e74696e7565)?;
+self.e(TK::Co)?;
 self.e(TK::S)?;
 Ok(AN::ContinueStmt(Box::new(AContinueStmt {s:Span::d(),})))
 }
@@ -592,15 +585,12 @@ Ok(AN::ExprStmt(Box::new(AExprStmt {s:Span::d(),expr:Box::new(a0),})))
 pub fn ppattern(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
 let a0=self.pi()?;
-let a1=self.p().ok();
-Ok(AN::Pattern(Box::new(APattern {s:Span::d(),ident:Box::new(a0),:Box::new(a1),})))
+Ok(AN::Pattern(Box::new(APattern {s:Span::d(),ident:Box::new(a0),})))
 }
 pub fn ppattern_args(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
 let a0=self.ppattern()?;
-let mut s:Vec<AN>=Vec::new();
-while let Ok(v)=self.p(){s.push(v)}
-Ok(AN::PatternArgs(Box::new(APatternArgs {s:Span::d(),pattern:Box::new(a0),:s,})))
+Ok(AN::PatternArgs(Box::new(APatternArgs {s:Span::d(),pattern:Box::new(a0),})))
 }
 pub fn pexpr(&mut self)->Result<AN,String>{
 if let Ok(v)=self.pbinary_expr(){return Ok(v)}
@@ -630,17 +620,17 @@ Ok(AN::BinaryExpr(Box::new(ABinaryExpr {s:Span::d(),expr:Box::new(a0),operator:B
 }
 pub fn punary_expr(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
-let a0=self.pi()?;
-let a1=self.pexpr()?;
-Ok(AN::UnaryExpr(Box::new(AUnaryExpr {s:Span::d(),:Box::new(a0),expr:Box::new(a1),})))
+//TODO
+let a0=self.pexpr()?;
+Ok(AN::UnaryExpr(Box::new(AUnaryExpr {s:Span::d(),expr:Box::new(a0),})))
 }
 pub fn pcall_expr(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
 let a0=self.pi()?;
 self.e(TK::LP)?;
-let a1=self.pexpr_list().ok();
+let _ = self.pexpr_list();
 self.e(TK::RP)?;
-Ok(AN::CallExpr(Box::new(ACallExpr {s:Span::d(),ident:Box::new(a0),expr_list:Box::new(a1),})))
+Ok(AN::CallExpr(Box::new(ACallExpr {s:Span::d(),ident:Box::new(a0),})))
 }
 pub fn pfield_expr(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
@@ -659,7 +649,7 @@ Ok(AN::IndexExpr(Box::new(AIndexExpr {s:Span::d(),expr:Box::new(a0),expr_1:Box::
 }
 pub fn pmatch_expr(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
-self.e(TK::O_6d61746368)?;
+self.e(TK::Mt)?;
 let a0=self.pexpr()?;
 self.e(TK::LB)?;
 let mut match_arms:Vec<AN>=Vec::new();
@@ -669,11 +659,10 @@ Ok(AN::MatchExpr(Box::new(AMatchExpr {s:Span::d(),expr:Box::new(a0),match_arm:ma
 }
 pub fn pif_expr(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
-self.e(TK::O_6966)?;
+self.e(TK::If)?;
 let a0=self.pexpr()?;
 let a1=self.pblock()?;
-let a2=self.p().ok();
-Ok(AN::IfExpr(Box::new(AIfExpr {s:Span::d(),expr:Box::new(a0),block:Box::new(a1),:Box::new(a2),})))
+Ok(AN::IfExpr(Box::new(AIfExpr {s:Span::d(),expr:Box::new(a0),block:Box::new(a1),})))
 }
 pub fn pblock_expr(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
@@ -698,34 +687,30 @@ Ok(AN::FieldInit(Box::new(AFieldInit {s:Span::d(),ident:Box::new(a0),expr:Box::n
 pub fn pfield_init_list(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
 let a0=self.pfield_init()?;
-let mut s:Vec<AN>=Vec::new();
-while let Ok(v)=self.p(){s.push(v)}
-Ok(AN::FieldInitList(Box::new(AFieldInitList {s:Span::d(),field_init:Box::new(a0),:s,})))
+Ok(AN::FieldInitList(Box::new(AFieldInitList {s:Span::d(),field_init:Box::new(a0),})))
 }
 pub fn parray_literal(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
 self.e(TK::LBK)?;
-let a0=self.pexpr_list().ok();
+let _ = self.pexpr_list();
 self.e(TK::RBK)?;
-Ok(AN::ArrayLiteral(Box::new(AArrayLiteral {s:Span::d(),expr_list:Box::new(a0),})))
+Ok(AN::ArrayLiteral(Box::new(AArrayLiteral {s:Span::d(),})))
 }
 pub fn pexpr_list(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
 let a0=self.pexpr()?;
-let mut s:Vec<AN>=Vec::new();
-while let Ok(v)=self.p(){s.push(v)}
-Ok(AN::ExprList(Box::new(AExprList {s:Span::d(),expr:Box::new(a0),:s,})))
+Ok(AN::ExprList(Box::new(AExprList {s:Span::d(),expr:Box::new(a0),})))
 }
 pub fn pbool_literal(&mut self)->Result<AN,String>{
-if matches!(self.tok().k,TK::O_74727565){
+if matches!(self.tok().k,TK::T){
 let _s=self.tok().s;
-self.e(TK::O_74727565)?;
-return Ok(AN::BoolLiteral(Box::new(BoolLiteral{s:Span::d(),})));
+self.e(TK::T)?;
+return Ok(AN::BoolLiteral(Box::new(ABoolLiteral{s:Span::d(),})));
 }
-if matches!(self.tok().k,TK::O_66616c7365){
+if matches!(self.tok().k,TK::F){
 let _s=self.tok().s;
-self.e(TK::O_66616c7365)?;
-return Ok(AN::BoolLiteral(Box::new(BoolLiteral{s:Span::d(),})));
+self.e(TK::F)?;
+return Ok(AN::BoolLiteral(Box::new(ABoolLiteral{s:Span::d(),})));
 }
 Err(format!("no alt for BoolLiteral at {}",self.tok().s.sl))
 }
@@ -734,6 +719,7 @@ pub fn adv(&mut self){self.p+=1;}
 pub fn e(&mut self,k:TK)->Result<(),String>{if self.tok().k==k{self.adv();Ok(())}else{Err(format!("expected {:?} at {}",k,self.tok().s.sl))}}
 pub fn pi(&mut self)->Result<AN,String>{let t=self.tok().clone();if t.k!=TK::Ident{return Err("id".into());}self.adv();Ok(AN::Ident(Box::new(AIdent{s:t.s,v:t.v})))}
 pub fn pn(&mut self)->Result<AN,String>{let t=self.tok().clone();if t.k!=TK::IntLit{return Err("int".into());}self.adv();let n:i64=t.v.parse().map_err(|_|"bad")?;Ok(AN::Int(Box::new(AInt{s:t.s,v:n})))}
+pub fn ps(&mut self)->Result<AN,String>{let t=self.tok().clone();if t.k!=TK::StrLit{return Err("str".into());}self.adv();Ok(AN::StringLiteral(Box::new(AStringLiteral{s:t.s,v:t.v})))}
 }
 
 // ── AST Visitor ──

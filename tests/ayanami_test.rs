@@ -9,7 +9,7 @@ fn test_lex() {
 
 #[test]
 fn test_lex_io() {
-    let src = include_str!("../../../Ayanami-language/std/src/io.aya");
+    let src = include_str!("../../Ayanami-language/std/src/io.aya");
     let mut lex = Lex::new(src);
     let tokens = lex.tkz();
     assert!(tokens.len() > 10, "expected many tokens, got {}", tokens.len());

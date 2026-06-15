@@ -31,8 +31,10 @@ fn tokens(gf: &GrammarFile, o: &mut String) {
     w(o, "#[derive(Clone,PartialEq,Debug)]\npub enum TK{Ident,IntLit,StrLit,");
     if let Some(l) = &gf.lexer {
         for k in &l.keywords { w(o, &kw(k)); w(o, ","); }
-        for p in &l.operators { w(o, &op_name(&p.symbol)); w(o, ","); }
-        for p in &l.punctuation { w(o, &op_name(p)); w(o, ","); }
+        let mut op_set: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for p in &l.operators { op_set.insert(op_name(&p.symbol)); }
+        for p in &l.punctuation { op_set.insert(op_name(p)); }
+        for name in &op_set { w(o, name); w(o, ","); }
     }
     w(o, "EOF}\n\n");
     w(o, "#[derive(Clone,Debug)]\npub struct Tok{pub k:TK,pub s:Span,pub v:String}\n\n");
@@ -41,13 +43,48 @@ fn tokens(gf: &GrammarFile, o: &mut String) {
     w(o, "pub fn tkz(&mut self)->Vec<Tok>{let mut t=Vec::new();loop{self.skip();if self.p>=self.c.len(){break}match self.c[self.p]{\n");
     w(o, "'\"'=>t.push(self.rs()),\nc if c.is_ascii_digit()=>t.push(self.rn()),\nc if c.is_alphabetic()||c=='_'=>t.push(self.ri()),\n");
     if let Some(l) = &gf.lexer {
-        let mut all: Vec<&str> = l.operators.iter().map(|o| o.symbol.as_str())
-            .chain(l.punctuation.iter().map(|s| s.as_str())).collect();
+        // Collect all operator/punct symbols, deduplicate by string
+        let mut all_set: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for s in l.operators.iter().map(|o| o.symbol.as_str()).chain(l.punctuation.iter().map(|s| s.as_str())) {
+            all_set.insert(s);
+        }
+        let mut all: Vec<&&str> = all_set.iter().collect();
         all.sort_by_key(|x| std::cmp::Reverse(x.len()));
+        // Group by first character for multi-char matching
+        use std::collections::BTreeMap;
+        let mut groups: BTreeMap<char, Vec<&str>> = BTreeMap::new();
         for x in &all {
             let ch = x.chars().next().unwrap();
             if ch.is_alphabetic() || ch == '_' || ch == '"' || ch.is_ascii_digit() { continue; }
-            w(o, &format!("'{}'=>t.push(self.rf(\"{}\",TK::{})),\n", ch, x, op_name(x)));
+            groups.entry(ch).or_default().push(x);
+        }
+        for (ch, syms) in &groups {
+            let esc_ch = escape_char(*ch);
+            let syms: Vec<&str> = syms.iter().map(|s| *s).collect();
+            let has_longer = syms.iter().any(|s| s.len() > 1);
+            if syms.len() == 1 || !has_longer {
+                // Single operator for this char (or only single-char variants)
+                w(o, &format!("'{}'=>t.push(self.rf(\"{}\",TK::{})),\n", esc_ch, syms[0], op_name(syms[0])));
+            } else {
+                // Multiple operators starting with same char — use if-else chain
+                w(o, &format!("'{}'=>{{\n", esc_ch));
+                // Sort longest first
+                let mut sorted = syms.clone();
+                sorted.sort_by_key(|x| std::cmp::Reverse(x.len()));
+                for s in &sorted {
+                    if s.len() > 1 {
+                        w(o, &format!("if self.p+{}<self.c.len()", s.len()-1));
+                        for (j, c2) in s.chars().skip(1).enumerate() {
+                            w(o, &format!("&&self.c[self.p+{}]=='{}'", j+1, escape_char(c2)));
+                        }
+                        w(o, &format!("{{t.push(self.rf(\"{}\",TK::{}))}}\n", s, op_name(s)));
+                    }
+                }
+                // Last (shortest) as fallback
+                let last = sorted.last().unwrap();
+                w(o, &format!("else{{t.push(self.rf(\"{}\",TK::{}))}}\n", last, op_name(last)));
+                w(o, "}\n");
+            }
         }
     }
     w(o, "_=>panic!(\"bad '{}'\",self.c[self.p])}}\nt.push(Tok{k:TK::EOF,s:Span::d(),v:String::new()});t}\n");
@@ -63,8 +100,8 @@ fn tokens(gf: &GrammarFile, o: &mut String) {
 // ── AST ──
 
 fn ast(gf: &GrammarFile, o: &mut String) {
-    w(o, "// AST\n#[derive(Clone,Debug)]\npub struct AIdent{pub s:Span,pub v:String}\n#[derive(Clone,Debug)]\npub struct AInt{pub s:Span,pub v:i64}\n\n");
-    w(o, "#[derive(Clone,Debug)]\npub enum AN{Ident(Box<AIdent>),Int(Box<AInt>),");
+    w(o, "// AST\n#[derive(Clone,Debug)]\npub struct AIdent{pub s:Span,pub v:String}\n#[derive(Clone,Debug)]\npub struct AInt{pub s:Span,pub v:i64}\n#[derive(Clone,Debug)]\npub struct AStringLiteral{pub s:Span,pub v:String}\n\n");
+    w(o, "#[derive(Clone,Debug)]\npub enum AN{Ident(Box<AIdent>),Int(Box<AInt>),StringLiteral(Box<AStringLiteral>),");
     for r in &gf.ast { let n = &r.name.as_str(); w(o, n); w(o, "(Box<A"); w(o, n); w(o, ">),"); }
     w(o, "}\n\n");
     for r in &gf.ast {
@@ -75,6 +112,7 @@ fn ast(gf: &GrammarFile, o: &mut String) {
         for s in get_syms(&r.production) {
             if let ProductionSymbolKind::NonTerm(n2) = &s.kind {
                 let fname = sf(&n2.as_str());
+                if fname.is_empty() { continue; }
                 let field = if seen.contains(&fname) { dup += 1; format!("{}_{}", fname, dup) } else { seen.insert(fname.clone()); fname.clone() };
                 match s.quantifier {
                     Quantifier::Repeat => { w(o, &format!("pub {}:Vec<AN>,", field)); }
@@ -89,13 +127,14 @@ fn ast(gf: &GrammarFile, o: &mut String) {
 fn hir(gf: &GrammarFile, o: &mut String) {
     // Always generate built-in HIR types
     w(o, "// HIR\n#[derive(Clone,Debug)]\npub struct HIdent{pub s:Span}\n");
-    w(o, "#[derive(Clone,Debug)]\npub struct HInt{pub s:Span,pub v:i64}\n\n");
+    w(o, "#[derive(Clone,Debug)]\npub struct HInt{pub s:Span,pub v:i64}\n");
+    w(o, "#[derive(Clone,Debug)]\npub struct HStringLiteral{pub s:Span,pub v:String}\n\n");
 
     if gf.hir.is_empty() {
-        w(o, "#[derive(Clone,Debug)]\npub enum HN{Ident(Box<HIdent>),Int(Box<HInt>)}\n\n");
+        w(o, "#[derive(Clone,Debug)]\npub enum HN{Ident(Box<HIdent>),Int(Box<HInt>),StringLiteral(Box<HStringLiteral>)}\n\n");
         return;
     }
-    w(o, "#[derive(Clone,Debug)]\npub enum HN{Ident(Box<HIdent>),Int(Box<HInt>),");
+    w(o, "#[derive(Clone,Debug)]\npub enum HN{Ident(Box<HIdent>),Int(Box<HInt>),StringLiteral(Box<HStringLiteral>),");
     for r in &gf.hir { let n = &r.name.as_str(); w(o, n); w(o, "(Box<H"); w(o, n); w(o, ">),"); }
     w(o, "}\n\n");
     for r in &gf.hir {
@@ -106,6 +145,7 @@ fn hir(gf: &GrammarFile, o: &mut String) {
         for s in get_syms(&r.production) {
             if let ProductionSymbolKind::NonTerm(n2) = &s.kind {
                 let fname = sf(&n2.as_str());
+                if fname.is_empty() { continue; }
                 let field = if seen.contains(&fname) { dup += 1; format!("{}_{}", fname, dup) } else { seen.insert(fname.clone()); fname.clone() };
                 match s.quantifier {
                     Quantifier::Repeat => { w(o, &format!("pub {}:Vec<HN>,", field)); }
@@ -150,6 +190,7 @@ fn parser(gf: &GrammarFile, o: &mut String) {
     w(o, "pub fn e(&mut self,k:TK)->Result<(),String>{if self.tok().k==k{self.adv();Ok(())}else{Err(format!(\"expected {:?} at {}\",k,self.tok().s.sl))}}\n");
     w(o, "pub fn pi(&mut self)->Result<AN,String>{let t=self.tok().clone();if t.k!=TK::Ident{return Err(\"id\".into());}self.adv();Ok(AN::Ident(Box::new(AIdent{s:t.s,v:t.v})))}\n");
     w(o, "pub fn pn(&mut self)->Result<AN,String>{let t=self.tok().clone();if t.k!=TK::IntLit{return Err(\"int\".into());}self.adv();let n:i64=t.v.parse().map_err(|_|\"bad\")?;Ok(AN::Int(Box::new(AInt{s:t.s,v:n})))}\n");
+    w(o, "pub fn ps(&mut self)->Result<AN,String>{let t=self.tok().clone();if t.k!=TK::StrLit{return Err(\"str\".into());}self.adv();Ok(AN::StringLiteral(Box::new(AStringLiteral{s:t.s,v:t.v})))}\n");
     w(o, "}\n\n");
 }
 
@@ -253,6 +294,7 @@ fn gen_parse(prod: &Production, rule_name: &str, rules: &HashSet<String>, o: &mu
                             ProductionSymbolKind::NonTerm(n) => sf(&n.as_str()),
                             _ => continue,
                         };
+                        if ns.is_empty() { continue; }
                         let var = format!("{}s", ns);
                         w(o, &format!("let mut {}:Vec<AN>=Vec::new();\n", var));
                         w(o, "while let Ok(v)=self.p"); w(o, &ns); w(o, "(){"); w(o, &var); w(o, ".push(v)}\n");
@@ -261,16 +303,14 @@ fn gen_parse(prod: &Production, rule_name: &str, rules: &HashSet<String>, o: &mu
                         captures.push((field, var, true));
                     }
                     Quantifier::Optional => {
-                        // Generate if for ?
+                        // Optional — skip for now
                         let ns = match &s.kind {
                             ProductionSymbolKind::NonTerm(n) => sf(&n.as_str()),
                             _ => continue,
                         };
-                        w(o, &format!("let {}=self.p{}().ok();\n", format!("a{}", vi), ns));
-                        let var = format!("a{}", vi); vi += 1;
-                        let fname = sf(&ns);
-                        let field = if seen.contains(&fname) { dup += 1; format!("{}_{}", fname, dup) } else { seen.insert(fname.clone()); fname };
-                        captures.push((field, var, false));
+                        if ns.is_empty() { continue; }
+                        // Just try parsing, but don't store the result (TODO: handle optionals properly)
+                        w(o, &format!("let _ = self.p{}();\n", ns));
                     }
                     Quantifier::Exactly => {
                         match &s.kind {
@@ -279,7 +319,7 @@ fn gen_parse(prod: &Production, rule_name: &str, rules: &HashSet<String>, o: &mu
                             }
                             ProductionSymbolKind::NonTerm(n2) => {
                                 let ns = sf(&n2.as_str());
-                                if ns == "op" || ns == "list" { w(o, "//TODO\n"); continue; }
+                                if ns.is_empty() || ns == "op" || ns == "list" { w(o, "//TODO\n"); continue; }
                                 let var = format!("a{}", vi); vi += 1;
                                 if rules.contains(&ns) {
                                     w(o, &format!("let {}=self.p{}()?;\n", var, ns));
@@ -288,6 +328,7 @@ fn gen_parse(prod: &Production, rule_name: &str, rules: &HashSet<String>, o: &mu
                                     w(o, &format!("let {}=self.{}()?;\n", var, m));
                                 }
                                 let fname = sf(&n2.as_str());
+                                if fname.is_empty() { continue; }
                                 let field = if seen.contains(&fname) { dup += 1; format!("{}_{}", fname, dup) } else { seen.insert(fname.clone()); fname };
                                 captures.push((field, var, false));
                             }
@@ -329,7 +370,8 @@ fn gen_parse(prod: &Production, rule_name: &str, rules: &HashSet<String>, o: &mu
                         }
                         Some(ProductionSymbolKind::Literal(l)) => {
                             w(o, &format!("if matches!(self.tok().k,TK::{}){{\n", ltok(l)));
-                            gen_seq_alt(syms, rule_name, rule_name, o);
+                            let struct_name = format!("A{}", rule_name);
+                            gen_seq_alt(syms, rule_name, &struct_name, o);
                             w(o, "}\n");
                         }
                         _ => {}
@@ -424,6 +466,7 @@ fn lowering(gf: &GrammarFile, o: &mut String) {
     // Built-in types first
     w(o, "AN::Ident(a)=>Ok(HN::Ident(Box::new(HIdent{s:a.s}))),\n");
     w(o, "AN::Int(a)=>Ok(HN::Int(Box::new(HInt{s:a.s,v:a.v}))),\n");
+    w(o, "AN::StringLiteral(a)=>Ok(HN::StringLiteral(Box::new(HStringLiteral{s:a.s,v:a.v}))),\n");
 
     // Collect all unique AST node names referenced in any way
     let mut ast_nodes: HashSet<String> = HashSet::new();
@@ -541,6 +584,7 @@ fn emit(gf: &GrammarFile, o: &mut String) {
     w(o, "match n{\n");
     w(o, "HN::Ident(_)=>Ok(String::new()),\n");
     w(o, "HN::Int(a)=>Ok(format!(\"{}\",a.v)),\n");
+    w(o, "HN::StringLiteral(a)=>Ok(a.v.clone()),\n");
     for er in &gf.emit {
         // Extract node name (strip parenthesized params like "HirInt(v)" → "HirInt")
         let node_full = &er.node;
@@ -622,9 +666,22 @@ fn op_name(s: &str) -> String {
 }
 
 fn ltok(s: &str) -> String {
+    // Check if it's a known operator/punctuation (op_name returns a clean name, not O_hex)
     let r = op_name(s);
-    if r != "O" { return r; }
+    if !r.starts_with("O_") { return r; }
+    // Check if it's a keyword
     kw(s)
+}
+
+fn escape_char(c: char) -> String {
+    match c {
+        '\'' => "\\'".into(),
+        '\\' => "\\\\".into(),
+        '\n' => "\\n".into(),
+        '\t' => "\\t".into(),
+        '\r' => "\\r".into(),
+        _ => c.to_string(),
+    }
 }
 
 fn sf(s: &str) -> String {
