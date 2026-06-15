@@ -7,6 +7,12 @@ edition = "2021"
 name = "asuka"
 path = "src/main.rs"
 
+[lib]
+name = "asuka"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
 [build-dependencies]
 serde = { version = "1", features = ["derive"] }
-serde_yaml = "0.9"

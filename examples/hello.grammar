@@ -1,0 +1,29 @@
+// hello.grammar — minimal language example
+
+@lexer {
+    keyword: "fn", "return"
+    operator: "+" (prec:5, assoc:left)
+              "*" (prec:6, assoc:left)
+    punct: ";", "{", "}", "(", ")"
+}
+
+@ast {
+    Program  = Stmt*;
+    Stmt     = FnDecl | ReturnStmt;
+    FnDecl   = "fn" Ident "(" ")" "{" Stmt* "}";
+    ReturnStmt = "return" Expr ";";
+    Expr     = Ident | IntLiteral | BinaryExpr;
+    BinaryExpr = Expr operator Expr;
+}
+
+@hir {
+    HirFnDecl  = FnDecl;
+    HirReturn  = ReturnStmt;
+    HirInt     = IntLiteral;
+    HirAdd     = BinaryExpr;
+}
+
+@pipeline {
+    parse → lex, parse_ast;
+    hir   → lower;
+}
