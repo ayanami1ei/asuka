@@ -1,913 +1,263 @@
 use crate::grammar::ir::*;
-use std::collections::HashSet;
+use std::collections::{HashSet, BTreeMap};
 
 pub fn generate(gf: &GrammarFile) -> String {
     let mut o = String::new();
-    w(&mut o, "// @generated\n#[allow(non_camel_case_types,unused)]\n\n");
-    span(&mut o);
-    tokens(gf, &mut o);
-    ast(gf, &mut o);
-    hir(gf, &mut o);
-    parser(gf, &mut o);
-    visitor(gf, &mut o);
-    lowering(gf, &mut o);
-    emit(gf, &mut o);
-    o
-}
+    w(&mut o, "// @generated\n#[allow(unused)]\n\n");
 
-fn w(o: &mut String, s: &str) { o.push_str(s); }
+    // Generate keyword list for lexer
+    let keywords: Vec<String> = gf.lexer.as_ref().map(|l| l.keywords.clone()).unwrap_or_default();
+    w(&mut o, &format!("pub const KEYWORDS: &[&str] = &{:?};\n\n", keywords));
 
-// ── Span ──
+    // Collect all operator/punct symbols for lexer matching
+    let mut symbols: Vec<String> = Vec::new();
+    if let Some(lex) = &gf.lexer {
+        let mut set: HashSet<&str> = HashSet::new();
+        for op in &lex.operators { set.insert(&op.symbol); }
+        for p in &lex.punctuation { set.insert(p); }
+        let mut sorted: Vec<&&str> = set.iter().collect();
+        sorted.sort_by_key(|x| std::cmp::Reverse(x.len()));
+        w(&mut o, "pub fn tokenize(input: &str) -> Vec<crate::runtime::Token> {\n");
+        w(&mut o, "    let mut lex = crate::runtime::Lexer::new(input);\n");
+        w(&mut o, "    let mut tokens = Vec::new();\n");
+        w(&mut o, "    loop {\n");
+        w(&mut o, "        lex.skip_ws();\n");
+        w(&mut o, "        if lex.pos >= lex.chars.len() { break; }\n");
+        w(&mut o, "        let c = lex.chars[lex.pos];\n");
+        w(&mut o, "        match c {\n");
+        w(&mut o, "            '\"' => tokens.push(lex.read_string()),\n");
+        w(&mut o, "            c if c.is_ascii_digit() => tokens.push(lex.read_number()),\n");
+        w(&mut o, "            c if c.is_alphabetic() || c == '_' => tokens.push(lex.read_ident(KEYWORDS)),\n");
 
-fn span(o: &mut String) {
-    w(o, "#[derive(Clone,Copy,Debug)]\npub struct Span{pub sl:u32,pub sc:u32,pub el:u32,pub ec:u32}\n");
-    w(o, "impl Span{pub fn d()->Self{Self{sl:0,sc:0,el:0,ec:0}}");
-    w(o, "pub fn mg(&self,o:&Span)->Self{Self{sl:self.sl,sc:self.sc,el:o.el,ec:o.ec}}}\n\n");
-}
-
-// ── Lexer / Tokens ──
-
-fn tokens(gf: &GrammarFile, o: &mut String) {
-    w(o, "#[derive(Clone,PartialEq,Debug)]\npub enum TK{Ident,IntLit,StrLit,");
-    if let Some(l) = &gf.lexer {
-        for k in &l.keywords { w(o, &kw(k)); w(o, ","); }
-        let mut op_set: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for p in &l.operators { op_set.insert(op_name(&p.symbol)); }
-        for p in &l.punctuation { op_set.insert(op_name(p)); }
-        for name in &op_set { w(o, name); w(o, ","); }
-    }
-    w(o, "EOF}\n\n");
-    w(o, "#[derive(Clone,Debug)]\npub struct Tok{pub k:TK,pub s:Span,pub v:String}\n\n");
-    w(o, "pub struct Lex{pub c:Vec<char>,pub p:usize,pub l:u32,pub col:u32}\n\n");
-    w(o, "impl Lex{pub fn new(s:&str)->Self{Self{c:s.chars().collect(),p:0,l:1,col:1}}\n");
-    w(o, "pub fn tkz(&mut self)->Vec<Tok>{let mut t=Vec::new();loop{self.skip();if self.p>=self.c.len(){break}match self.c[self.p]{\n");
-    w(o, "'\"'=>t.push(self.rs()),\nc if c.is_ascii_digit()=>t.push(self.rn()),\nc if c.is_alphabetic()||c=='_'=>t.push(self.ri()),\n");
-    if let Some(l) = &gf.lexer {
-        // Collect all operator/punct symbols, deduplicate by string
-        let mut all_set: std::collections::HashSet<&str> = std::collections::HashSet::new();
-        for s in l.operators.iter().map(|o| o.symbol.as_str()).chain(l.punctuation.iter().map(|s| s.as_str())) {
-            all_set.insert(s);
-        }
-        let mut all: Vec<&&str> = all_set.iter().collect();
-        all.sort_by_key(|x| std::cmp::Reverse(x.len()));
-        // Group by first character for multi-char matching
-        use std::collections::BTreeMap;
-        let mut groups: BTreeMap<char, Vec<&str>> = BTreeMap::new();
-        for x in &all {
+        // Multi-char operator groups
+        let mut groups: BTreeMap<char, Vec<&&str>> = BTreeMap::new();
+        for x in &sorted {
             let ch = x.chars().next().unwrap();
             if ch.is_alphabetic() || ch == '_' || ch == '"' || ch.is_ascii_digit() { continue; }
             groups.entry(ch).or_default().push(x);
         }
         for (ch, syms) in &groups {
-            let esc_ch = escape_char(*ch);
-            let syms: Vec<&str> = syms.iter().map(|s| *s).collect();
             let has_longer = syms.iter().any(|s| s.len() > 1);
-            if syms.len() == 1 || !has_longer {
-                // Single operator for this char (or only single-char variants)
-                w(o, &format!("'{}'=>t.push(self.rf(\"{}\",TK::{})),\n", esc_ch, syms[0], op_name(syms[0])));
+            if !has_longer || syms.len() == 1 {
+                let s = syms[0];
+                let kind = s.to_uppercase();
+                w(&mut o, &format!("            '{}' => tokens.push(lex.read_fixed(\"{}\", \"{}\")),\n", ch, s, kind));
             } else {
-                // Multiple operators starting with same char — use if-else chain
-                w(o, &format!("'{}'=>{{\n", esc_ch));
-                // Sort longest first
-                let mut sorted = syms.clone();
-                sorted.sort_by_key(|x| std::cmp::Reverse(x.len()));
-                for s in &sorted {
+                w(&mut o, &format!("            '{}' => {{\n", ch));
+                let mut sorted_syms = syms.clone();
+                sorted_syms.sort_by_key(|x| std::cmp::Reverse(x.len()));
+                for s in &sorted_syms {
+                    let kind = s.to_uppercase();
                     if s.len() > 1 {
-                        w(o, &format!("if self.p+{}<self.c.len()", s.len()-1));
+                        w(&mut o, &format!("                if self.p+{}<self.c.len()", s.len()-1));
                         for (j, c2) in s.chars().skip(1).enumerate() {
-                            w(o, &format!("&&self.c[self.p+{}]=='{}'", j+1, escape_char(c2)));
+                            w(&mut o, &format!(" && self.c[self.p+{}]=='{}'", j+1, c2));
                         }
-                        w(o, &format!("{{t.push(self.rf(\"{}\",TK::{}))}}\n", s, op_name(s)));
+                        w(&mut o, &format!(" {{ tokens.push(lex.read_fixed(\"{}\", \"{}\")); }}\n", s, kind));
                     }
                 }
-                // Last (shortest) as fallback
-                let last = sorted.last().unwrap();
-                w(o, &format!("else{{t.push(self.rf(\"{}\",TK::{}))}}\n", last, op_name(last)));
-                w(o, "}\n");
+                w(&mut o, &format!("                else {{ tokens.push(lex.read_fixed(\"{}\", \"{}\")); }}\n", sorted_syms.last().unwrap(), sorted_syms.last().unwrap().to_uppercase()));
+                w(&mut o, "            }\n");
             }
         }
+        w(&mut o, "            _ => panic!(\"unexpected '{}'\", c),\n");
+        w(&mut o, "        }\n");
+        w(&mut o, "    }\n");
+        w(&mut o, "    tokens.push(crate::runtime::Token { kind: \"EOF\".into(), span: crate::runtime::Span::new(), value: String::new() });\n");
+        w(&mut o, "    tokens\n");
+        w(&mut o, "}\n\n");
     }
-    w(o, "_=>panic!(\"bad '{}'\",self.c[self.p])}}\nt.push(Tok{k:TK::EOF,s:Span::d(),v:String::new()});t}\n");
-    w(o, "fn skip(&mut self){loop{let c=self.c.get(self.p);match c{Some(' '|'\\t'|'\\r')=>{self.p+=1;self.col+=1;}Some('\\n')=>{self.p+=1;self.l+=1;self.col=1;}Some('/')if self.p+1<self.c.len()&&self.c[self.p+1]=='/'=>{while self.p<self.c.len(){if self.c[self.p]=='\\n'{break}self.p+=1;}}_=>{break}}}}\n");
-    w(o, "fn rs(&mut self)->Tok{let(sl,sc)=(self.l,self.col);self.p+=1;let mut v=String::new();while self.p<self.c.len()&&self.c[self.p]!='\"'{if self.c[self.p]=='\\\\'{self.p+=1;self.col+=1;match self.c.get(self.p){Some('n')=>v.push('\\n'),Some('t')=>v.push('\\t'),Some('0')=>v.push('\\0'),Some(c)=>v.push(*c),None=>{}}}else{v.push(self.c[self.p]);}self.p+=1;self.col+=1;}if self.p<self.c.len(){self.p+=1;}Tok{k:TK::StrLit,s:Span{sl,sc,el:self.l,ec:self.col},v}}\n");
-    w(o, "fn rn(&mut self)->Tok{let(sl,sc)=(self.l,self.col);let sp=self.p;while self.p<self.c.len()&&(self.c[self.p].is_ascii_digit()||self.c[self.p]=='.'){self.p+=1;self.col+=1;}let v:String=self.c[sp..self.p].iter().collect();Tok{k:TK::IntLit,s:Span{sl,sc,el:self.l,ec:self.col},v}}\n");
-    w(o, "fn ri(&mut self)->Tok{let(sl,sc)=(self.l,self.col);let sp=self.p;while self.p<self.c.len()&&(self.c[self.p].is_alphanumeric()||self.c[self.p]=='_'){self.p+=1;self.col+=1;}let v:String=self.c[sp..self.p].iter().collect();let k=match v.as_str(){");
-    if let Some(l) = &gf.lexer { for k in &l.keywords { w(o, &format!("\"{}\"=>TK::{},", k, kw(k))); } }
-    w(o, "_=>TK::Ident};Tok{k,s:Span{sl,sc,el:self.l,ec:self.col},v}}\n");
-    w(o, "fn rf(&mut self,s:&str,k:TK)->Tok{let(sl,sc)=(self.l,self.col);self.p+=s.len();self.col+=s.len()as u32;Tok{k,s:Span{sl,sc,el:self.l,ec:self.col},v:s.to_string()}}\n}\n\n");
-}
 
-// ── AST ──
-
-fn ast(gf: &GrammarFile, o: &mut String) {
-    w(o, "// AST\n#[derive(Clone,Debug)]\npub struct AIdent{pub s:Span,pub v:String}\n#[derive(Clone,Debug)]\npub struct AInt{pub s:Span,pub v:i64}\n#[derive(Clone,Debug)]\npub struct AStringLiteral{pub s:Span,pub v:String}\n\n");
-    w(o, "#[derive(Clone,Debug)]\npub enum AN{Ident(Box<AIdent>),Int(Box<AInt>),StringLiteral(Box<AStringLiteral>),");
-    for r in &gf.ast { let n = &r.name.as_str(); w(o, n); w(o, "(Box<A"); w(o, n); w(o, ">),"); }
-    w(o, "}\n\n");
-    for r in &gf.ast {
-        let n = &r.name.as_str();
-        w(o, "#[derive(Clone,Debug)]\npub struct A"); w(o, n); w(o, "{pub s:Span,");
-        let mut seen = HashSet::new();
-        let mut dup = 0u32;
-        for s in get_syms(&r.production) {
-            if let ProductionSymbolKind::NonTerm(n2) = &s.kind {
-                let fname = sf(&n2.as_str());
-                if fname.is_empty() { continue; }
-                let field = if seen.contains(&fname) { dup += 1; format!("{}_{}", fname, dup) } else { seen.insert(fname.clone()); fname.clone() };
-                match s.quantifier {
-                    Quantifier::Repeat => { w(o, &format!("pub {}:Vec<AN>,", field)); }
-                    Quantifier::Optional => { w(o, &format!("pub {}:Option<Box<AN>>,", field)); }
-                    _ => { w(o, &format!("pub {}:Box<AN>,", field)); }
-                }
-            }
-        }
-        w(o, "}\n\n");
-    }
-}
-
-fn hir(gf: &GrammarFile, o: &mut String) {
-    // Always generate built-in HIR types
-    w(o, "// HIR\n#[derive(Clone,Debug)]\npub struct HIdent{pub s:Span}\n");
-    w(o, "#[derive(Clone,Debug)]\npub struct HInt{pub s:Span,pub v:i64}\n");
-    w(o, "#[derive(Clone,Debug)]\npub struct HStringLiteral{pub s:Span,pub v:String}\n\n");
-
-    if gf.hir.is_empty() {
-        w(o, "#[derive(Clone,Debug)]\npub enum HN{Ident(Box<HIdent>),Int(Box<HInt>),StringLiteral(Box<HStringLiteral>)}\n\n");
-        return;
-    }
-    w(o, "#[derive(Clone,Debug)]\npub enum HN{Ident(Box<HIdent>),Int(Box<HInt>),StringLiteral(Box<HStringLiteral>),");
-    for r in &gf.hir { let n = &r.name.as_str(); w(o, n); w(o, "(Box<H"); w(o, n); w(o, ">),"); }
-    w(o, "}\n\n");
-    for r in &gf.hir {
-        let n = &r.name.as_str();
-        w(o, "#[derive(Clone,Debug)]\npub struct H"); w(o, n); w(o, "{pub s:Span,");
-        let mut seen = HashSet::new();
-        let mut dup = 0u32;
-        for s in get_syms(&r.production) {
-            if let ProductionSymbolKind::NonTerm(n2) = &s.kind {
-                let fname = sf(&n2.as_str());
-                if fname.is_empty() { continue; }
-                let field = if seen.contains(&fname) { dup += 1; format!("{}_{}", fname, dup) } else { seen.insert(fname.clone()); fname.clone() };
-                match s.quantifier {
-                    Quantifier::Repeat => { w(o, &format!("pub {}:Vec<HN>,", field)); }
-                    _ => { w(o, &format!("pub {}:Box<HN>,", field)); }
-                }
-            }
-        }
-        w(o, "}\n\n");
-    }
-}
-
-// ── Parser ──
-
-fn parser(gf: &GrammarFile, o: &mut String) {
-    if gf.ast.is_empty() { return; }
-    w(o, "// Parser\npub struct P{pub t:Vec<Tok>,pub p:usize}\n");
-    w(o, "impl P{pub fn new(t:Vec<Tok>)->Self{Self{t,p:0}}\n");
-
-    // Pre-collect rule names for quick lookup
+    // Generate parser methods for AST rules
     let rule_names: HashSet<String> = gf.ast.iter().map(|r| sf(&r.name.as_str())).collect();
+    w(&mut o, "pub struct Parser(pub crate::runtime::Parser);\n");
+    w(&mut o, "impl Parser {\n");
+    w(&mut o, "    pub fn new(tokens: Vec<crate::runtime::Token>) -> Self { Self(crate::runtime::Parser::new(tokens)) }\n\n");
 
-    // Detect operator rules and generate precedence helper if needed
-    let has_op = gf.ast.iter().any(|r| has_operator(&r.production));
-    if has_op {
-        gen_op_precedence(gf, o);
-    }
+    // Built-in parse methods
+    w(&mut o, "    pub fn pi(&mut self) -> Result<crate::runtime::Value, String> {\n");
+    w(&mut o, "        let t = self.0.tok().clone();\n");
+    w(&mut o, "        if t.kind != \"Ident\" { return Err(\"expected ident\".into()); }\n");
+    w(&mut o, "        self.0.adv();\n");
+    w(&mut o, "        let mut node = crate::runtime::Node::new(\"Ident\");\n");
+    w(&mut o, "        node.set(\"value\", crate::runtime::Value::String(t.value));\n");
+    w(&mut o, "        Ok(crate::runtime::Value::Node(Box::new(node)))\n");
+    w(&mut o, "    }\n");
+    w(&mut o, "    pub fn pn(&mut self) -> Result<crate::runtime::Value, String> {\n");
+    w(&mut o, "        let t = self.0.tok().clone();\n");
+    w(&mut o, "        if t.kind != \"IntLit\" { return Err(\"expected int\".into()); }\n");
+    w(&mut o, "        self.0.adv();\n");
+    w(&mut o, "        let n: i64 = t.value.parse().map_err(|_| \"bad int\")?;\n");
+    w(&mut o, "        let mut node = crate::runtime::Node::new(\"IntLit\");\n");
+    w(&mut o, "        node.set(\"value\", crate::runtime::Value::Int(n));\n");
+    w(&mut o, "        Ok(crate::runtime::Value::Node(Box::new(node)))\n");
+    w(&mut o, "    }\n");
+    w(&mut o, "    pub fn ps(&mut self) -> Result<crate::runtime::Value, String> {\n");
+    w(&mut o, "        let t = self.0.tok().clone();\n");
+    w(&mut o, "        if t.kind != \"StrLit\" { return Err(\"expected string\".into()); }\n");
+    w(&mut o, "        self.0.adv();\n");
+    w(&mut o, "        let mut node = crate::runtime::Node::new(\"StrLit\");\n");
+    w(&mut o, "        node.set(\"value\", crate::runtime::Value::String(t.value));\n");
+    w(&mut o, "        Ok(crate::runtime::Value::Node(Box::new(node)))\n");
+    w(&mut o, "    }\n\n");
 
     for r in &gf.ast {
-        let n = &r.name.as_str();
-        let ns = sf(n);
-        let is_op_rule = has_operator(&r.production);
-        w(o, "pub fn p"); w(o, &ns); w(o, "(&mut self)->Result<AN,String>{\n");
-        if is_op_rule {
-            gen_op_parse(&r.production, n, &rule_names, gf, o);
-        } else {
-            gen_parse(&r.production, n, &rule_names, o, "", gf);
+        let name = &r.name.as_str();
+        let snake = sf(name);
+        let is_alt = matches!(&r.production, Production::Alt(_));
+        w(&mut o, &format!("    pub fn p{}(&mut self) -> Result<crate::runtime::Value, String> {{\n", snake));
+        if !is_alt {
+            w(&mut o, &format!("        let mut n = crate::runtime::Node::new(\"{}\");\n", name));
         }
-        w(o, "}\n");
-    }
-
-    w(o, "pub fn tok(&self)->&Tok{&self.t[self.p]}\npub fn adv(&mut self){self.p+=1;}\n");
-    w(o, "pub fn e(&mut self,k:TK)->Result<(),String>{if self.tok().k==k{self.adv();Ok(())}else{Err(format!(\"expected {:?} at {}\",k,self.tok().s.sl))}}\n");
-    w(o, "pub fn pi(&mut self)->Result<AN,String>{let t=self.tok().clone();if t.k!=TK::Ident{return Err(\"id\".into());}self.adv();Ok(AN::Ident(Box::new(AIdent{s:t.s,v:t.v})))}\n");
-    w(o, "pub fn pn(&mut self)->Result<AN,String>{let t=self.tok().clone();if t.k!=TK::IntLit{return Err(\"int\".into());}self.adv();let n:i64=t.v.parse().map_err(|_|\"bad\")?;Ok(AN::Int(Box::new(AInt{s:t.s,v:n})))}\n");
-    w(o, "pub fn ps(&mut self)->Result<AN,String>{let t=self.tok().clone();if t.k!=TK::StrLit{return Err(\"str\".into());}self.adv();Ok(AN::StringLiteral(Box::new(AStringLiteral{s:t.s,v:t.v})))}\n");
-    w(o, "}\n\n");
-}
-
-fn has_operator(prod: &Production) -> bool {
-    match prod {
-        Production::Seq(syms) => syms.iter().any(|s| match &s.kind {
-            ProductionSymbolKind::NonTerm(n) => n.as_str() == "operator",
-            ProductionSymbolKind::Group(g) => has_operator(g),
-            _ => false,
-        }),
-        Production::Alt(alts) => alts.iter().any(|a| has_operator(a)),
-        _ => false,
-    }
-}
-
-fn gen_op_precedence(gf: &GrammarFile, o: &mut String) {
-    // Generate op_prec helper function
-    w(o, "fn op_prec(&self,k:&TK)->u32{match k{\n");
-    if let Some(lex) = &gf.lexer {
-        for op_def in &lex.operators {
-            w(o, &format!("TK::{} => {},\n", op_name(&op_def.symbol), op_def.precedence));
+        gen_node_builder(&r.production, &rule_names, &mut o, "        ");
+        if !is_alt {
+            w(&mut o, &format!("        Ok(crate::runtime::Value::Node(Box::new(n)))\n"));
         }
+        w(&mut o, "    }\n\n");
     }
-    w(o, "_=>0}}\n");
+
+    w(&mut o, "}\n");
+    o
 }
 
-fn gen_op_parse(prod: &Production, rule_name: &str, rules: &HashSet<String>, _gf: &GrammarFile, o: &mut String) {
-    // For operator rules, generate standard sequence parsing but skip the operator token
-    // Full precedence climbing can be added later
-    let mut captures: Vec<(String, String)> = Vec::new();
-    let mut seen = HashSet::new();
-    let mut dup = 0u32;
-    let mut vi = 0u32;
-
-    w(o, "let _s=self.tok().s;\n");
-    if let Production::Seq(syms) = prod {
-        for s in syms {
-            match &s.kind {
-                ProductionSymbolKind::Literal(lit) => {
-                    w(o, &format!("self.e(TK::{})?;\n", ltok(lit)));
-                }
-                ProductionSymbolKind::NonTerm(n2) => {
-                    let ns = sf(&n2.as_str());
-                    if ns == "op" {
-                        // Match any operator token
-                        w(o, "match self.tok().k{\n");
-                        if let Some(lex) = &_gf.lexer {
-                            for op_def in &lex.operators {
-                                w(o, &format!("TK::{} => self.adv(),\n", op_name(&op_def.symbol)));
-                            }
-                        }
-                        w(o, "_=>return Err(\"expected operator\".into())}\n");
-                        continue;
-                    }
-                    let var = format!("a{}", vi); vi += 1;
-                    if rules.contains(&ns) {
-                        w(o, &format!("let {}=self.p{}()?;\n", var, ns));
-                    } else {
-                        w(o, &format!("let {}=self.pi()?;\n", var));
-                    }
-                    let fname = sf(&n2.as_str());
-                    let field = if seen.contains(&fname) { dup += 1; format!("{}_{}", fname, dup) } else { seen.insert(fname.clone()); fname };
-                    captures.push((field, var));
-                }
-                _ => {}
-            }
-        }
-    }
-    w(o, &format!("Ok(AN::{}(Box::new(A{} {{s:Span::d(),", rule_name, rule_name));
-    for (field, var) in &captures { w(o, &format!("{}:Box::new({}),", field, var)); }
-    w(o, "})))\n");
+fn set_field(n: &str, field: &str, val: &str) -> String {
+    format!("let {} = {}.set(\"{}\", {});", n, n, field, val)
 }
 
-fn find_first_non_op<'a>(prod: &'a Production, rules: &HashSet<String>) -> &'a str {
-    // Find the first non-operator non-terminal in the production
-    if let Production::Seq(syms) = prod {
-        for s in syms {
-            if let ProductionSymbolKind::NonTerm(n) = &s.kind {
-                let ns = sf(&n.as_str());
-                if ns != "op" && rules.contains(&ns) {
-                    // Return pointer to &str — leak it for simplicity
-                    return Box::leak(ns.clone().into_boxed_str());
-                }
-            }
-        }
-    }
-    "expr"
-}
-
-fn gen_parse(prod: &Production, rule_name: &str, rules: &HashSet<String>, o: &mut String, indent: &str, gf: &GrammarFile) {
+fn gen_node_builder(prod: &Production, rules: &HashSet<String>, o: &mut String, indent: &str) {
     match prod {
         Production::Seq(syms) => {
-            // (field_name, var_name, is_vec, is_option)
-            let mut captures: Vec<(String, String, bool, bool)> = Vec::new();
-            let mut seen = HashSet::new();
-            let mut dup = 0u32;
             let mut vi = 0u32;
-
-            w(o, "let _s=self.tok().s;\n");
             for s in syms {
-                match s.quantifier {
-                    Quantifier::Repeat => {
-                        // Check for group expansion: (alt | alt)*
-                        if let ProductionSymbolKind::Group(inner) = &s.kind {
-                            gen_group_repeat(inner, rule_name, rules, gf, o, &mut seen, &mut dup, &mut vi, &mut captures);
-                            continue;
-                        }
-                        // Generate while loop for *
-                        let ns = match &s.kind {
-                            ProductionSymbolKind::NonTerm(n) => sf(&n.as_str()),
-                            _ => continue,
-                        };
-                        if ns.is_empty() { continue; }
-                        let var = format!("{}s", ns);
-                        w(o, &format!("let mut {}:Vec<AN>=Vec::new();\n", var));
-                        w(o, "while let Ok(v)=self.p"); w(o, &ns); w(o, "(){"); w(o, &var); w(o, ".push(v)}\n");
-                        let fname = sf(&ns);
-                        let field = if seen.contains(&fname) { dup += 1; format!("{}_{}", fname, dup) } else { seen.insert(fname.clone()); fname };
-                        captures.push((field, var, true, false));
+                match &s.kind {
+                    ProductionSymbolKind::Literal(lit) => {
+                        let kind = lit.to_uppercase();
+                        w(o, &format!("{}self.0.expect(\"{}\")?;\n", indent, kind));
                     }
-                    Quantifier::Optional => {
-                        // Check for group expansion: (alt | alt)?
-                        if let ProductionSymbolKind::Group(inner) = &s.kind {
-                            gen_group_optional(inner, rule_name, rules, gf, o, &mut seen, &mut dup, &mut vi, &mut captures);
-                            continue;
-                        }
-                        // Optional: try parsing, store as Option
-                        let ns = match &s.kind {
-                            ProductionSymbolKind::NonTerm(n) => sf(&n.as_str()),
-                            _ => continue,
-                        };
-                        if ns.is_empty() { continue; }
-                        let var = format!("a{}", vi); vi += 1;
-                        // Check if it's a built-in type
-                        if ns == "ident" {
-                            w(o, &format!("let {} = self.pi().ok();\n", var));
-                        } else if ns == "int_literal" || ns == "intlit" {
-                            w(o, &format!("let {} = self.pn().ok();\n", var));
+                    ProductionSymbolKind::NonTerm(n2) => {
+                        let ns = sf(&n2.as_str());
+                        if ns == "op" { w(o, &format!("{}//TODO op\n", indent)); continue; }
+                        if ns == "list" { w(o, &format!("{}//TODO list\n", indent)); continue; }
+                        let var = format!("v{}", vi); vi += 1;
+                        let field = sf(&n2.as_str());
+                        if rules.contains(&ns) || is_builtin(&ns) {
+                            let method = match ns.as_str() {
+                                "ident" => "pi",
+                                "int_literal" | "intlit" => "pn",
+                                "string_literal" | "strlit" => "ps",
+                                _ => &format!("p{}", ns),
+                            };
+                            w(o, &format!("{}if let crate::runtime::Value::Node(child) = self.{}()? {{\n", indent, method));
+                            w(o, &format!("{}    n.set(\"{}\", crate::runtime::Value::Node(child));\n", indent, field));
+                            w(o, &format!("{}}}\n", indent));
                         } else {
-                            w(o, &format!("let {} = self.p{}().ok();\n", var, ns));
-                        }
-                        let fname = sf(&ns);
-                        let field = if seen.contains(&fname) { dup += 1; format!("{}_{}", fname, dup) } else { seen.insert(fname.clone()); fname };
-                        captures.push((field, var, false, true));
-                    }
-                    Quantifier::Exactly => {
-                        match &s.kind {
-                            ProductionSymbolKind::Literal(lit) => {
-                                w(o, &format!("self.e(TK::{})?;\n", ltok(lit)));
-                            }
-                            ProductionSymbolKind::NonTerm(n2) => {
-                                let ns = sf(&n2.as_str());
-                                if ns.is_empty() || ns == "op" || ns == "list" { w(o, "//TODO\n"); continue; }
-                                let var = format!("a{}", vi); vi += 1;
-                                if rules.contains(&ns) {
-                                    w(o, &format!("let {}=self.p{}()?;\n", var, ns));
-                                } else {
-                                    let m = builtin_parse(&ns);
-                                    w(o, &format!("let {}=self.{}()?;\n", var, m));
-                                }
-                                let fname = sf(&n2.as_str());
-                                if fname.is_empty() { continue; }
-                                let field = if seen.contains(&fname) { dup += 1; format!("{}_{}", fname, dup) } else { seen.insert(fname.clone()); fname };
-                                captures.push((field, var, false, false));
-                            }
-                            _ => {}
+                            w(o, &format!("{}if let crate::runtime::Value::Node(child) = self.pi()? {{\n", indent));
+                            w(o, &format!("{}    n.set(\"{}\", crate::runtime::Value::Node(child));\n", indent, field));
+                            w(o, &format!("{}}}\n", indent));
                         }
                     }
+                    ProductionSymbolKind::Group(inner) => {
+                        gen_group_builder(inner, rules, o, indent);
+                    }
+                    _ => {}
                 }
             }
-            w(o, &format!("Ok(AN::{}(Box::new(A{} {{s:Span::d(),", rule_name, rule_name));
-            for (field, var, is_vec, is_option) in &captures {
-                if *is_vec {
-                    w(o, &format!("{}:{},", field, var));
-                } else if *is_option {
-                    w(o, &format!("{}:{}.map(|v|Box::new(v)),", field, var));
-                } else {
-                    w(o, &format!("{}:Box::new({}),", field, var));
-                }
-            }
-            w(o, "})))\n");
         }
         Production::Alt(alts) => {
-            // Check if any alternative is an operator rule (has operator keyword)
-            let has_op_alt = alts.iter().any(|a| has_operator(a));
-            
-            if has_op_alt {
-                // Simple expression parsing: try non-operator alts first, then loop on operator+rhs
-                w(o, "// alt with operator — try each non-op alternative\n");
-                // Generate individual attempts for non-operator alternatives
-                let mut alt_count = 0u32;
-                for alt in alts {
-                    if has_operator(alt) { continue; }
-                    if let Production::Seq(syms) = alt {
-                        if let Some(first) = syms.first() {
-                            let pred = match &first.kind {
-                                ProductionSymbolKind::NonTerm(n) => {
-                                    let ns = sf(&n.as_str());
-                                    if rules.contains(&ns) {
-                                        w(o, &format!("if let Ok(v)=self.p{}(){{let mut lhs=v;", ns));
-                                    } else {
-                                        let tk = match ns.as_str() {
-                                            "ident" => "Ident",
-                                            "int_literal" | "intlit" => "IntLit",
-                                            "string_literal" | "strlit" => "StrLit",
-                                            _ => { w(o, &format!("//TODO alt {}\n", ns)); continue; }
-                                        };
-                                        w(o, &format!("if matches!(self.tok().k,TK::{}){{let mut lhs=self.{}()?;", tk, if ns=="ident"{"pi"}else if ns=="int_literal"||ns=="intlit"{"pn"}else{"ps"}));
-                                    }
-                                    alt_count += 1;
-                                    continue;
-                                }
-                                ProductionSymbolKind::Literal(l) => {
-                                    w(o, &format!("if matches!(self.tok().k,TK::{}){{", ltok(l)));
-                                    alt_count += 1;
-                                    continue;
-                                }
-                                _ => continue,
-                            };
-                        }
-                    }
-                }
-                // Close the alt init blocks and add operator loop
-                w(o, "// operator loop\n");
-                w(o, "loop{match self.tok().k{\n");
-                if let Some(lex) = &gf.lexer {
-                    for op_def in &lex.operators {
-                        w(o, &format!("TK::{} => {{\n", op_name(&op_def.symbol)));
-                        w(o, "self.adv();\n");
-                        // Parse RHS with same alt logic
-                        for alt in alts {
-                            if has_operator(alt) { continue; }
-                            if let Production::Seq(syms) = alt {
-                                if let Some(first) = syms.first() {
-                                    match &first.kind {
-                                        ProductionSymbolKind::NonTerm(n) => {
-                                            let ns = sf(&n.as_str());
-                                            if rules.contains(&ns) {
-                                                w(o, &format!("let rhs=self.p{}()?;\n", ns));
-                                            } else {
-                                                let m = match ns.as_str() {
-                                                    "ident" => "pi",
-                                                    "int_literal"|"intlit" => "pn",
-                                                    _ => "pi",
-                                                };
-                                                w(o, &format!("let rhs=self.{}()?;\n", m));
-                                            }
-                                            break;
-                                        }
-                                        _ => continue,
-                                    }
-                                }
-                            }
-                        }
-                        w(o, "lhs=AN::BinaryExpr(Box::new(ABinaryExpr{s:Span::d(),expr:Box::new(lhs),operator:Box::new(AN::Ident(Box::new(AIdent{s:Span::d(),v:String::new()}))),expr_1:Box::new(rhs)}));\n");
-                        w(o, "}\n");
-                    }
-                }
-                w(o, "_=>break}\n}\nreturn Ok(lhs);}\n");
-                // Close the if blocks from alt_count
-                for _ in 0..alt_count { w(o, "}\n"); }
-            } else {
-                for alt in alts {
-                    if let Production::Seq(syms) = alt {
-                        let first_sym = syms.first().map(|s| &s.kind);
-                        match first_sym {
-                            Some(ProductionSymbolKind::NonTerm(n)) => {
+            // Simple try-each approach
+            let mut alt_idx = 0u32;
+            for alt in alts {
+                if let Production::Seq(syms) = alt {
+                    if let Some(first) = syms.first() {
+                        let pred = match &first.kind {
+                            ProductionSymbolKind::NonTerm(n) => {
                                 let ns = sf(&n.as_str());
                                 if rules.contains(&ns) {
-                                    w(o, &format!("if let Ok(v)=self.p{}(){{return Ok(v)}}\n", ns));
+                                    w(o, &format!("{}if let Ok(val) = self.p{}() {{ return Ok(val); }}\n", indent, ns));
                                     continue;
                                 }
-                                let (tk, parse_method) = match ns.as_str() {
-                                    "ident" => ("Ident", "pi"),
-                                    "int_literal" | "intlit" => ("IntLit", "pn"),
-                                    "string_literal" | "strlit" => ("StrLit", "ps"),
-                                    _ => { w(o, &format!("//TODO alt {}\n", ns)); continue; }
-                                };
-                                w(o, &format!("if matches!(self.tok().k,TK::{}){{return self.{}()}}\n", tk, parse_method));
+                                match ns.as_str() {
+                                    "ident" => format!("self.0.tok().kind == \"Ident\""),
+                                    "int_literal" | "intlit" => format!("self.0.tok().kind == \"IntLit\""),
+                                    _ => continue,
+                                }
                             }
-                        Some(ProductionSymbolKind::Literal(l)) => {
-                            w(o, &format!("if matches!(self.tok().k,TK::{}){{\n", ltok(l)));
-                            let struct_name = format!("A{}", rule_name);
-                            gen_seq_alt(syms, rule_name, &struct_name, o, false);
-                            w(o, "}\n");
-                        }
-                            _ => {}
-                        }
+                            ProductionSymbolKind::Literal(l) => format!("self.0.tok().kind == \"{}\"", l.to_uppercase()),
+                            _ => continue,
+                        };
+                        let struct_name = &alt_idx;
+                        w(o, &format!("{}if {} {{\n", indent, pred));
+                        let mut inner_indent = format!("{}    ", indent);
+                        let alt_name = name_for_alt(alts, alt);
+                        gen_alt_seq_builder(syms, &alt_name, rules, o, &inner_indent);
+                        w(o, &format!("{}}}\n", indent));
+                        alt_idx += 1;
                     }
                 }
             }
-            if !has_op_alt {
-                w(o, &format!("Err(format!(\"no alt for {} at {{}}\",self.tok().s.sl))\n", rule_name));
-            }
+            w(o, &format!("{}return Err(format!(\"no alt\"));\n", indent));
         }
-        _ => { w(o, "todo!()\n"); }
+        _ => {}
     }
 }
 
-
-
-fn gen_seq_alt(syms: &[ProductionSymbol], an_var: &str, a_struct: &str, o: &mut String, _use_captures: bool) {
-    // Generate parsing for an alternative sequence, returning the result
-    let mut captures: Vec<(String, String)> = Vec::new();
-    let mut seen = HashSet::new();
-    let mut dup = 0u32;
-    let mut vi = 0u32;
-
-    w(o, "let _s=self.tok().s;\n");
+fn gen_alt_seq_builder(syms: &[ProductionSymbol], rule_name: &str, rules: &HashSet<String>, o: &mut String, indent: &str) {
+    // Generate code to build a Node for this specific alternative
+    let field_name = sf(rule_name);
+    w(o, &format!("{}let mut node = crate::runtime::Node::new(\"{}\");\n", indent, rule_name));
     for s in syms {
         match &s.kind {
             ProductionSymbolKind::Literal(lit) => {
-                w(o, &format!("self.e(TK::{})?;\n", ltok(lit)));
+                w(o, &format!("{}self.0.expect(\"{}\")?;\n", indent, lit.to_uppercase()));
             }
             ProductionSymbolKind::NonTerm(n2) => {
                 let ns = sf(&n2.as_str());
                 if ns == "op" || ns == "list" { continue; }
-                let var = format!("a{}", vi); vi += 1;
-                // Check if it's a literal token type (Ident, IntLit)
-                if ns == "ident" {
-                    w(o, &format!("let {}=self.pi()?;\n", var));
-                } else if ns == "int_literal" || ns == "intlit" {
-                    w(o, &format!("let {}=self.pn()?;\n", var));
-                } else {
-                    w(o, &format!("let {}=self.pi()?;\n", var));
-                }
-                let fname = sf(&n2.as_str());
-                let field = if seen.contains(&fname) { dup += 1; format!("{}_{}", fname, dup) } else { seen.insert(fname.clone()); fname };
-                captures.push((field, var));
+                let field = sf(&n2.as_str());
+                let method = match ns.as_str() {
+                    "ident" => "pi",
+                    "int_literal" | "intlit" => "pn",
+                    "string_literal" | "strlit" => "ps",
+                    _ => &format!("p{}", ns),
+                };
+                w(o, &format!("{}if let crate::runtime::Value::Node(child) = self.{}()? {{\n", indent, method));
+                w(o, &format!("{}    node.set(\"{}\", crate::runtime::Value::Node(child));\n", indent, field));
+                w(o, &format!("{}}}\n", indent));
             }
             _ => {}
         }
     }
-    // Return the result as the target node type
-    w(o, &format!("return Ok(AN::{}(Box::new({}{{s:Span::d()", an_var, a_struct));
-    if _use_captures {
-        w(o, ",");
-        for (field, var) in &captures { w(o, &format!("{}:Box::new({}),", field, var)); }
-    }
-    w(o, "})));\n");
+    w(o, &format!("{}return Ok(crate::runtime::Value::Node(Box::new(node)));\n", indent));
 }
 
-fn builtin_parse(name: &str) -> &'static str {
-    match name {
-        "ident" => "pi",
-        "int_literal" | "intlit" => "pn",
-        "string_literal" | "strlit" => "ps",
-        _ => "pi", // default to ident
-    }
+fn gen_group_builder(inner: &Production, rules: &HashSet<String>, o: &mut String, indent: &str) {
+    // Simple stub: try to parse group content
+    w(o, &format!("{}// group\n", indent));
 }
 
-// ── Visitor ──
-
-fn visitor(gf: &GrammarFile, o: &mut String) {
-    if gf.ast.is_empty() { return; }
-    w(o, "// ── AST Visitor ──\n\n");
-    w(o, "pub trait AstVisit<T>{\n");
-    for r in &gf.ast {
-        let n = &r.name.as_str();
-        w(o, "fn visit_"); w(o, &sf(n)); w(o, "(&mut self,n:&A"); w(o, n); w(o, ")->T;\n");
-    }
-    w(o, "}\n\n");
-
-    // Default walk implementations
-    w(o, "pub struct AstWalk;\n");
-    w(o, "impl<T:Default> AstVisit<T> for AstWalk{\n");
-    for r in &gf.ast {
-        let n = &r.name.as_str();
-        w(o, "fn visit_"); w(o, &sf(n)); w(o, "(&mut self,_n:&A"); w(o, n); w(o, ")->T{T::default()}\n");
-    }
-    w(o, "}\n\n");
-}
-
-// ── Lowering (AST → HIR) ──
-
-fn lowering(gf: &GrammarFile, o: &mut String) {
-    if gf.hir.is_empty() { return; }
-    w(o, "// ── Lowering (Tree Transducer) ──\n\n");
-
-    // Generate the main lowering function using transform rules
-    w(o, "pub fn lower_node(ast:&AN)->Result<HN,String>{\n");
-    w(o, "match ast{\n");
-
-    // Built-in types first
-    w(o, "AN::Ident(a)=>Ok(HN::Ident(Box::new(HIdent{s:a.s}))),\n");
-    w(o, "AN::Int(a)=>Ok(HN::Int(Box::new(HInt{s:a.s,v:a.v}))),\n");
-    w(o, "AN::StringLiteral(a)=>Ok(HN::StringLiteral(Box::new(HStringLiteral{s:a.s,v:a.v.clone()}))),\n");
-
-    // Collect all unique AST node names referenced in any way
-    let mut ast_nodes: HashSet<String> = HashSet::new();
-    for r in &gf.ast { ast_nodes.insert(r.name.as_str().to_string()); }
-
-    // For each AST node type, generate the lowering logic
-    for ast_name in &ast_nodes {
-        let has_transform = gf.transform.iter().any(|t| t.pattern.node_name == *ast_name);
-        let has_hir = gf.hir.iter().any(|h| {
-            get_hir_source(&h.production, &gf.ast) == *ast_name
-        });
-
-        // Always generate a case for every AST node (auto-lower children)
-        if !has_transform && !has_hir {
-            // Auto-lower: skip this node (no HIR equivalent)
-            w(o, "AN::"); w(o, ast_name); w(o, "(_)=>Err(\"skip\".into()),\n");
-            continue;
-        }
-
-        w(o, "AN::"); w(o, ast_name); w(o, "(a)=>{\n");
-
-        // Try transform rules first
-        let mut rule_idx = 0u32;
-        for tr in &gf.transform {
-            if tr.pattern.node_name != *ast_name { continue; }
-            let hir_name = &tr.replacement.node_name;
-
-            // Generate condition checks
-            for (field, expected_val) in &tr.pattern.conditions {
-                // The field is stored in the AST struct — we need to check it
-                let fname = sf(field);
-                w(o, &format!("if a.{} != \"{}\" {{ ", fname, expected_val));
-            }
-
-            // Build the HIR node: map captures to HIR fields
-            w(o, "return Ok(HN::"); w(o, hir_name); w(o, "(Box::new(H"); w(o, hir_name); w(o, "{s:a.s");
-            let hir_str2: &str = hir_name;
-            let hirs: Vec<&Rule> = gf.hir.iter().filter(|r| &r.name.as_str() == hir_str2).collect();
-            // Collect HIR struct field names (for all non-operator symbols)
-            let mut hir_fields: Vec<String> = Vec::new();
-            let mut seen_hir = HashSet::new();
-            let mut dup_hir = 0u32;
-            if let Some(hir_rule) = hirs.first() {
-                for sym in get_syms(&hir_rule.production) {
-                    if let ProductionSymbolKind::NonTerm(n) = &sym.kind {
-                        let ns = sf(&n.as_str());
-                        let fname = if seen_hir.contains(&ns) { dup_hir += 1; format!("{}_{}", ns, dup_hir) } else { seen_hir.insert(ns.clone()); ns.clone() };
-                        hir_fields.push(fname);
-                    }
-                }
-            }
-            // Map each replacement arg to the corresponding HIR field and AST field (by position)
-            // Collect AST non-operator child field names from the grammar rule
-            let ast_rule = &gf.ast.iter().find(|r| r.name.as_str() == ast_name.as_str());
-            let mut ast_non_op_fields: Vec<(String, bool)> = Vec::new(); // (name, is_vec)
-            if let Some(ar) = ast_rule {
-                let mut seen_ast = HashSet::new();
-                let mut dup_ast = 0u32;
-                for sym in get_syms(&ar.production) {
-                    if let ProductionSymbolKind::NonTerm(n) = &sym.kind {
-                        let ns = sf(&n.as_str());
-                        if ns == "op" { continue; }
-                        let fname = if seen_ast.contains(&ns) { dup_ast += 1; format!("{}_{}", ns, dup_ast) } else { seen_ast.insert(ns.clone()); ns.clone() };
-                        let is_vec = matches!(sym.quantifier, Quantifier::Repeat);
-                        ast_non_op_fields.push((fname, is_vec));
-                    }
-                }
-            }
-            for (pos, arg) in tr.replacement.args.iter().enumerate() {
-                let hir_field = hir_fields.get(pos);
-                let Some(hir_field) = hir_field else { continue; };
-                let (ast_field, is_vec) = ast_non_op_fields.get(pos).cloned().unwrap_or_else(|| (sf(arg), false));
-                if is_vec {
-                    // Repeat field: lower first element (or skip if empty)
-                    w(o, &format!("if !a.{}.is_empty(){{", ast_field));
-                    w(o, &format!(",{}:Box::new(lower_node(&a.{}[0])?)", hir_field, ast_field));
-                    w(o, "}");
-                } else {
-                    w(o, &format!(",{}:Box::new(lower_node(&a.{})?)", hir_field, ast_field));
-                }
-            }
-            w(o, "})));\n");
-
-            // Close the condition if checks
-            for _ in &tr.pattern.conditions {
-                w(o, "}\n");
-            }
-
-            rule_idx += 1;
-        }
-
-        // Fallback — only if no transform was applied
-        if rule_idx == 0 {
-            if has_hir {
-                w(o, &format!("Err(format!(\"no transform for {}\"))\n", ast_name));
-            } else {
-                w(o, "Err(\"no matching transform\".into())\n");
-            }
-        }
-
-        w(o, "}\n");
-    }
-
-    w(o, "_=>Err(\"unknown node\".into())\n");
-    w(o, "}\n}\n\n");
-}
-
-
-// ── Emit (HIR → LLVM IR) ──
-
-fn emit(gf: &GrammarFile, o: &mut String) {
-    if gf.emit.is_empty() { return; }
-    w(o, "// ── Emit ──\n\n");
-    w(o, "pub fn emit_node(n:&HN)->Result<String,String>{\n");
-    w(o, "match n{\n");
-    w(o, "HN::Ident(_)=>Ok(String::new()),\n");
-    w(o, "HN::Int(a)=>Ok(format!(\"{}\",a.v)),\n");
-    w(o, "HN::StringLiteral(a)=>Ok(a.v.clone()),\n");
-    for er in &gf.emit {
-        // Extract node name (strip parenthesized params like "HirInt(v)" → "HirInt")
-        let node_full = &er.node;
-        let node_name = node_full.split('(').next().unwrap_or(node_full);
-        w(o, "HN::"); w(o, node_name); w(o, "(a)=>{\n");
-        let mut tmpl = er.template.clone();
-        let hir_str: &str = node_name;
-        let hirs: Vec<&Rule> = gf.hir.iter().filter(|r| &r.name.as_str() == hir_str).collect();
-        if let Some(hr) = hirs.first() {
-            for sym in get_syms(&hr.production) {
-                if let ProductionSymbolKind::NonTerm(n) = &sym.kind {
-                    let ns = sf(&n.as_str());
-                    let placeholder = format!("%{}", ns);
-                    tmpl = tmpl.replace(&placeholder, &format!("\"&emit_node(&a.{})?\"", ns));
-                }
-            }
-        }
-        let tmpl_escaped = tmpl.replace("\\n", "\\\\n").replace("{", "{{").replace("}", "}}");
-        w(o, &format!("Ok(format!({}))\n", tmpl_escaped));
-        w(o, "}\n");
-    }
-    w(o, "_=>Err(\"no emit\".into())\n");
-    w(o, "}\n}\n\n");
-}
-
-/// Extract the source AST rule name from a HIR production (e.g., HirFnDecl = FnDecl → "FnDecl")
-/// Expand a Group production with Repeat quantifier (e.g., ("+" | "-") MulExpr)*
-fn gen_group_repeat(inner: &Production, _rule_name: &str, rules: &HashSet<String>, gf: &GrammarFile,
-    o: &mut String, seen: &mut HashSet<String>, dup: &mut u32, vi: &mut u32, captures: &mut Vec<(String, String, bool, bool)>) {
-    // Collect all operator literals from alternatives in the group
-    let mut op_tokens: Vec<String> = Vec::new();
-    if let Production::Alt(alts) = inner {
-        for alt in alts {
+fn name_for_alt(alts: &[Production], target: &Production) -> String {
+    for alt in alts {
+        if std::ptr::eq(alt, target) {
             if let Production::Seq(syms) = alt {
-                if let Some(first) = syms.first() {
-                    if let ProductionSymbolKind::Literal(l) = &first.kind {
-                        op_tokens.push(ltok(l));
+                for s in syms {
+                    if let ProductionSymbolKind::NonTerm(n) = &s.kind {
+                        return sf(&n.as_str());
+                    }
+                    if let ProductionSymbolKind::Literal(l) = &s.kind {
+                        return l.clone();
                     }
                 }
             }
         }
     }
-    if op_tokens.is_empty() { return; }
-    
-    // Generate while loop: loop { match token { op1 => { parse body }, op2 => {...}, _ => break } }
-    w(o, "loop{match self.tok().k{\n");
-    if let Production::Alt(alts) = inner {
-        for alt in alts {
-            if let Production::Seq(syms) = alt {
-                let mut iter = syms.iter();
-                // First symbol should be an operator literal
-                let op_lit = match iter.next().map(|s| &s.kind) {
-                    Some(ProductionSymbolKind::Literal(l)) => ltok(l),
-                    _ => continue,
-                };
-                w(o, &format!("TK::{} => {{\n", op_lit));
-                w(o, "self.adv();\n");
-                // Remaining symbols are the RHS
-                for rhs_sym in iter {
-                    match &rhs_sym.kind {
-                        ProductionSymbolKind::NonTerm(n) => {
-                            let ns = sf(&n.as_str());
-                            if rules.contains(&ns) {
-                                w(o, &format!("let _rhs=self.p{}()?;\n", ns));
-                            } else if ns == "ident" {
-                                w(o, "let _rhs=self.pi()?;\n");
-                            } else if ns == "int_literal" || ns == "intlit" {
-                                w(o, "let _rhs=self.pn()?;\n");
-                            } else {
-                                w(o, "let _rhs=self.pi()?;\n");
-                            }
-                        }
-                        ProductionSymbolKind::Literal(l) => {
-                            w(o, &format!("self.e(TK::{})?;\n", ltok(l)));
-                        }
-                        _ => {}
-                    }
-                }
-                w(o, "}\n");
-            }
-        }
-    }
-    w(o, "_=>break}\n}\n");
+    "unknown".into()
 }
 
-/// Expand a Group production with Optional quantifier
-fn gen_group_optional(inner: &Production, _rule_name: &str, rules: &HashSet<String>, _gf: &GrammarFile,
-    o: &mut String, _seen: &mut HashSet<String>, _dup: &mut u32, _vi: &mut u32, _captures: &mut Vec<(String, String, bool, bool)>) {
-    // Simple approach: try to match the group content
-    if let Production::Alt(alts) = inner {
-        for alt in alts {
-            if let Production::Seq(syms) = alt {
-                if let Some(first) = syms.first() {
-                    let tk = match &first.kind {
-                        ProductionSymbolKind::Literal(l) => ltok(l),
-                        ProductionSymbolKind::NonTerm(n) => {
-                            let ns = sf(&n.as_str());
-                            if rules.contains(&ns) { return; } // skip rule-based
-                            match ns.as_str() {
-                                "ident" => "Ident".to_string(),
-                                _ => return,
-                            }
-                        }
-                        _ => return,
-                    };
-                    w(o, &format!("if matches!(self.tok().k,TK::{}){{\n", tk));
-                    for s in syms {
-                        match &s.kind {
-                            ProductionSymbolKind::Literal(l) => {
-                                w(o, &format!("self.e(TK::{})?;\n", ltok(l)));
-                            }
-                            ProductionSymbolKind::NonTerm(n) => {
-                                let ns = sf(&n.as_str());
-                                if rules.contains(&ns) {
-                                    w(o, &format!("self.p{}()?;\n", ns));
-                                } else if ns == "ident" {
-                                    w(o, "self.pi()?;\n");
-                                } else {
-                                    w(o, "self.pi()?;\n");
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                    w(o, "}\n");
-                }
-            }
-        }
-    }
+fn is_builtin(ns: &str) -> bool {
+    matches!(ns, "ident" | "int_literal" | "intlit" | "string_literal" | "strlit")
 }
 
-/// Extract the source AST rule name from a HIR production (e.g., HirFnDecl = FnDecl → "FnDecl")
-fn get_hir_source(prod: &Production, ast_rules: &[Rule]) -> &'static str {
-    match prod {
-        Production::Seq(syms) => {
-            for s in syms {
-                if let ProductionSymbolKind::NonTerm(n) = &s.kind {
-                    let ns = n.as_str();
-                    if ast_rules.iter().any(|r| r.name.as_str() == ns) {
-                        return Box::leak(ns.into_boxed_str());
-                    }
-                }
-            }
-            ""
-        }
-        Production::Alt(alts) => {
-            for a in alts {
-                let r = get_hir_source(a, ast_rules);
-                if !r.is_empty() { return r; }
-            }
-            ""
-        }
-        _ => "",
-    }
-}
-
-// ── Helpers ──
-
-fn get_syms(p: &Production) -> Vec<&ProductionSymbol> {
-    match p { Production::Seq(s) => s.iter().collect(), _ => vec![] }
-}
-
-fn has_group(p: &Production) -> bool {
-    match p {
-        Production::Seq(syms) => syms.iter().any(|s| matches!(s.kind, ProductionSymbolKind::Group(_))),
-        _ => false,
-    }
-}
-
-fn kw(s: &str) -> String {
-    match s { "fn"=>"Fn".into(),"return"=>"Ret".into(),"if"=>"If".into(),"else"=>"El".into(),
-              "true"=>"T".into(),"false"=>"F".into(),"let"=>"Let".into(),
-              "while"=>"Wh".into(),"for"=>"Fr".into(),"in"=>"In".into(),
-              "match"=>"Mt".into(),"enum"=>"En".into(),"struct"=>"St".into(),
-              "impl"=>"Im".into(),"pub"=>"Pb".into(),"shared"=>"Sh".into(),
-              "unique"=>"Uq".into(),"weak"=>"Wk".into(),"extern"=>"Ex".into(),
-              "import"=>"Ip".into(),"as"=>"As".into(),"break"=>"Br".into(),"continue"=>"Co".into(),
-              "mut"=>"Mut".into(),"self"=>"Slf".into(), _ => format!("K{}", s.to_uppercase()) }
-}
-
-fn op_name(s: &str) -> String {
-    match s { "+"=>"Plus".into(),"-"=>"Minus".into(),"*"=>"Star".into(),"/"=>"Slash".into(),
-              "("=>"LP".into(),")"=>"RP".into(),"{"=>"LB".into(),"}"=>"RB".into(),
-              "["=>"LBK".into(),"]"=>"RBK".into(),
-              ";"=>"S".into(),","=>"C".into(),":"=>"Colon".into(),"?"=>"Q".into(),"."=>"Dt".into(),"::"=>"CC".into(),
-              "->"=>"Ar".into(),"=>"=>"FA".into(),
-              "="=>"Eq".into(),"=="=>"EqEq".into(),"!="=>"Ne".into(),"!"=>"Bg".into(),
-              "<"=>"Lt".into(),">"=>"Gt".into(),"<="=>"Le".into(),">="=>"Ge".into(),
-              "&"=>"And".into(),"|"=>"Or".into(),"%"=>"Pct".into(),"?"=>"Q".into(),
-              "_"=>"Us".into(),"@"=>"At".into(),
-              _ => format!("O_{}", s.chars().map(|c| format!("{:02x}", c as u8)).collect::<Vec<_>>().join("")) }
-}
-
-fn ltok(s: &str) -> String {
-    // Check if it's a known operator/punctuation (op_name returns a clean name, not O_hex)
-    let r = op_name(s);
-    if !r.starts_with("O_") { return r; }
-    // Check if it's a keyword
-    kw(s)
-}
-
-fn escape_char(c: char) -> String {
-    match c {
-        '\'' => "\\'".into(),
-        '\\' => "\\\\".into(),
-        '\n' => "\\n".into(),
-        '\t' => "\\t".into(),
-        '\r' => "\\r".into(),
-        _ => c.to_string(),
-    }
-}
+fn w(o: &mut String, s: &str) { o.push_str(s); }
 
 fn sf(s: &str) -> String {
     let mut r = String::new();
@@ -915,29 +265,11 @@ fn sf(s: &str) -> String {
         if c.is_uppercase() && i > 0 { r.push('_'); }
         r.push(c.to_ascii_lowercase());
     }
-    // Avoid Rust keywords
     match r.as_str() {
         "type" => "typ".into(),
-        "ref" => "ref_".into(),
-        "mut" => "mut_".into(),
-        "in" => "in_".into(),
-        "for" => "for_".into(),
-        "if" => "if_".into(),
-        "else" => "else_".into(),
-        "match" => "match_".into(),
-        "return" => "return_".into(),
-        "while" => "while_".into(),
-        "break" => "break_".into(),
-        "continue" => "continue_".into(),
-        "true" => "true_".into(),
-        "false" => "false_".into(),
-        "fn" => "fn_".into(),
-        "struct" => "struct_".into(),
-        "enum" => "enum_".into(),
-        "impl" => "impl_".into(),
-        "pub" => "pub_".into(),
-        "let" => "let_".into(),
-        "extern" => "ext_".into(),
+        "ref" | "mut" | "in" | "for" | "if" | "else" | "match" | "return"
+        | "while" | "break" | "continue" | "true" | "false" | "fn" | "struct"
+        | "enum" | "impl" | "pub" | "let" | "extern" => format!("{}_", r),
         _ => r,
     }
 }

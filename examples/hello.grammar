@@ -1,5 +1,3 @@
-// hello.grammar — minimal language example
-
 @lexer {
     keyword: "fn", "return"
     operator: "+" (prec:5, assoc:left)
@@ -14,29 +12,4 @@
     ReturnStmt = "return" Expr ";";
     Expr     = Ident | IntLiteral | BinaryExpr;
     BinaryExpr = Expr operator Expr;
-}
-
-@hir {
-    HirFnDecl  = FnDecl;
-    HirReturn  = ReturnStmt;
-    HirInt     = IntLiteral;
-    HirAdd     = BinaryExpr;
-}
-
-@transform {
-    FnDecl(ident, stmt) → HirFnDecl(ident, stmt);
-    ReturnStmt(expr) → HirReturn(expr);
-    BinaryExpr(lhs, rhs) → HirAdd(lhs, rhs);
-}
-
-@emit {
-    HirInt(v) → "%hir_int = add i64 0, %v"
-    HirReturn(e) → "ret i64 %e"
-    HirFnDecl(f) → "define i64 @main() {\\n  %f\\n}"
-}
-
-@pipeline {
-    parse → lex, parse_ast;
-    hir   → lower;
-    emit  → codegen;
 }
