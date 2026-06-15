@@ -477,7 +477,7 @@ fn lowering(gf: &GrammarFile, o: &mut String) {
             // Map each replacement arg to the corresponding HIR field and AST field (by position)
             // Collect AST non-operator child field names from the grammar rule
             let ast_rule = &gf.ast.iter().find(|r| r.name.as_str() == ast_name.as_str());
-            let mut ast_non_op_fields: Vec<String> = Vec::new();
+            let mut ast_non_op_fields: Vec<(String, bool)> = Vec::new(); // (name, is_vec)
             if let Some(ar) = ast_rule {
                 let mut seen_ast = HashSet::new();
                 let mut dup_ast = 0u32;
@@ -486,15 +486,23 @@ fn lowering(gf: &GrammarFile, o: &mut String) {
                         let ns = sf(&n.as_str());
                         if ns == "op" { continue; }
                         let fname = if seen_ast.contains(&ns) { dup_ast += 1; format!("{}_{}", ns, dup_ast) } else { seen_ast.insert(ns.clone()); ns.clone() };
-                        ast_non_op_fields.push(fname);
+                        let is_vec = matches!(sym.quantifier, Quantifier::Repeat);
+                        ast_non_op_fields.push((fname, is_vec));
                     }
                 }
             }
             for (pos, arg) in tr.replacement.args.iter().enumerate() {
                 let hir_field = hir_fields.get(pos);
                 let Some(hir_field) = hir_field else { continue; };
-                let ast_field = ast_non_op_fields.get(pos).cloned().unwrap_or_else(|| sf(arg));
-                w(o, &format!(",{}:Box::new(lower_node(&a.{})?)", hir_field, ast_field));
+                let (ast_field, is_vec) = ast_non_op_fields.get(pos).cloned().unwrap_or_else(|| (sf(arg), false));
+                if is_vec {
+                    // Repeat field: lower first element (or skip if empty)
+                    w(o, &format!("if !a.{}.is_empty(){{", ast_field));
+                    w(o, &format!(",{}:Box::new(lower_node(&a.{}[0])?)", hir_field, ast_field));
+                    w(o, "}");
+                } else {
+                    w(o, &format!(",{}:Box::new(lower_node(&a.{})?)", hir_field, ast_field));
+                }
             }
             w(o, "})));\n");
 

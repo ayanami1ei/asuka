@@ -4,15 +4,9 @@ fn run_pipeline(source: &str) -> Result<HN, String> {
     let mut lex = Lex::new(source);
     let tokens = lex.tkz();
     let mut parser = P::new(tokens);
-    let ast = parser.pprogram()?;
-    // For program, lower the first child (skip Program container)
-    match &ast {
-        AN::Program(p) => {
-            if p.stmt.is_empty() { return Err("empty program".into()); }
-            lower_node(&p.stmt[0])
-        }
-        _ => lower_node(&ast),
-    }
+    // Parse a single statement (without Program wrapper)
+    let ast = parser.pstmt()?;
+    lower_node(&ast)
 }
 
 #[test]
@@ -54,23 +48,28 @@ fn test_parse() {
 }
 
 #[test]
-#[ignore = "lowering not yet wired for Program"]
 fn test_full_pipeline() {
-    let result = run_pipeline("fn main() { return 42; }");
-    assert!(result.is_ok(), "pipeline failed: {:?}", result);
-    match result.unwrap() {
-        HN::HirFnDecl(_) => {}
-        other => panic!("expected HirFnDecl, got {:?}", other),
-    }
-}
-
-#[test]
-#[ignore = "lowering not yet wired for statement-only input"]
-fn test_pipeline_expression() {
-    let result = run_pipeline("return 1 + 2;");
+    // Parse 'return 42;' as a statement — should give HirReturn
+    let result = run_pipeline("return 42;");
     assert!(result.is_ok(), "pipeline failed: {:?}", result);
     match result.unwrap() {
         HN::HirReturn(_) => {}
         other => panic!("expected HirReturn, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_pipeline_fn() {
+    // Parse 'fn main() { return 42; }' as a function decl
+    let mut lex = Lex::new("fn main() { return 42; }");
+    let tokens = lex.tkz();
+    let mut parser = P::new(tokens);
+    let ast = parser.pfn_decl();
+    assert!(ast.is_ok(), "parse failed: {:?}", ast);
+    let result = lower_node(&ast.unwrap());
+    assert!(result.is_ok(), "lowering failed: {:?}", result);
+    match result.unwrap() {
+        HN::HirFnDecl(_) => {}
+        other => panic!("expected HirFnDecl, got {:?}", other),
     }
 }

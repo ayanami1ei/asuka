@@ -166,17 +166,17 @@ pub fn lower_node(ast:&AN)->Result<HN,String>{
 match ast{
 AN::Ident(a)=>Ok(HN::Ident(Box::new(HIdent{s:a.s}))),
 AN::Int(a)=>Ok(HN::Int(Box::new(HInt{s:a.s,v:a.v}))),
+AN::ReturnStmt(a)=>{
+return Ok(HN::HirReturn(Box::new(HHirReturn{s:a.s,return_stmt:Box::new(lower_node(&a.expr)?)})));
+}
 AN::Expr(_)=>Err("skip".into()),
-AN::Stmt(_)=>Err("skip".into()),
-AN::Program(_)=>Err("skip".into()),
 AN::BinaryExpr(a)=>{
 return Ok(HN::HirAdd(Box::new(HHirAdd{s:a.s,binary_expr:Box::new(lower_node(&a.expr)?)})));
 }
+AN::Stmt(_)=>Err("skip".into()),
+AN::Program(_)=>Err("skip".into()),
 AN::FnDecl(a)=>{
 return Ok(HN::HirFnDecl(Box::new(HHirFnDecl{s:a.s,fn_decl:Box::new(lower_node(&a.ident)?)})));
-}
-AN::ReturnStmt(a)=>{
-return Ok(HN::HirReturn(Box::new(HHirReturn{s:a.s,return_stmt:Box::new(lower_node(&a.expr)?)})));
 }
 _=>Err("unknown node".into())
 }
