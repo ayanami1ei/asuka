@@ -63,7 +63,12 @@ pub struct ABinaryExpr{pub s:Span,pub expr:Box<AN>,pub operator:Box<AN>,pub expr
 
 // HIR
 #[derive(Clone,Debug)]
-pub enum HN{HirFnDecl(Box<HHirFnDecl>),HirReturn(Box<HHirReturn>),HirInt(Box<HHirInt>),HirAdd(Box<HHirAdd>),}
+pub struct HIdent{pub s:Span}
+#[derive(Clone,Debug)]
+pub struct HInt{pub s:Span,pub v:i64}
+
+#[derive(Clone,Debug)]
+pub enum HN{Ident(Box<HIdent>),Int(Box<HInt>),HirFnDecl(Box<HHirFnDecl>),HirReturn(Box<HHirReturn>),HirInt(Box<HHirInt>),HirAdd(Box<HHirAdd>),}
 
 #[derive(Clone,Debug)]
 pub struct HHirFnDecl{pub s:Span,pub fn_decl:Box<HN>,}
@@ -130,6 +135,49 @@ pub fn adv(&mut self){self.p+=1;}
 pub fn e(&mut self,k:TK)->Result<(),String>{if self.tok().k==k{self.adv();Ok(())}else{Err(format!("expected {:?} at {}",k,self.tok().s.sl))}}
 pub fn pi(&mut self)->Result<AN,String>{let t=self.tok().clone();if t.k!=TK::Ident{return Err("id".into());}self.adv();Ok(AN::Ident(Box::new(AIdent{s:t.s,v:t.v})))}
 pub fn pn(&mut self)->Result<AN,String>{let t=self.tok().clone();if t.k!=TK::IntLit{return Err("int".into());}self.adv();let n:i64=t.v.parse().map_err(|_|"bad")?;Ok(AN::Int(Box::new(AInt{s:t.s,v:n})))}
+}
+
+// ── AST Visitor ──
+
+pub trait AstVisit<T>{
+fn visit_program(&mut self,n:&AProgram)->T;
+fn visit_stmt(&mut self,n:&AStmt)->T;
+fn visit_fn_decl(&mut self,n:&AFnDecl)->T;
+fn visit_return_stmt(&mut self,n:&AReturnStmt)->T;
+fn visit_expr(&mut self,n:&AExpr)->T;
+fn visit_binary_expr(&mut self,n:&ABinaryExpr)->T;
+}
+
+pub struct AstWalk;
+impl<T:Default> AstVisit<T> for AstWalk{
+fn visit_program(&mut self,_n:&AProgram)->T{T::default()}
+fn visit_stmt(&mut self,_n:&AStmt)->T{T::default()}
+fn visit_fn_decl(&mut self,_n:&AFnDecl)->T{T::default()}
+fn visit_return_stmt(&mut self,_n:&AReturnStmt)->T{T::default()}
+fn visit_expr(&mut self,_n:&AExpr)->T{T::default()}
+fn visit_binary_expr(&mut self,_n:&ABinaryExpr)->T{T::default()}
+}
+
+// ── Lowering ──
+
+pub fn lower_program(ast:&AN)->Result<HN,String>{
+match ast{
+AN::FnDecl(a)=>{
+// TODO: lower FnDecl → HirFnDecl
+unimplemented!()
+}
+AN::ReturnStmt(a)=>{
+// TODO: lower ReturnStmt → HirReturn
+unimplemented!()
+}
+AN::BinaryExpr(a)=>{
+// TODO: lower BinaryExpr → HirAdd
+unimplemented!()
+}
+AN::Ident(a)=>Ok(HN::Ident(Box::new(HIdent{s:a.s}))),
+AN::Int(a)=>Ok(HN::Int(Box::new(HInt{s:a.s,v:a.v}))),
+_=>Err("no lowering defined".into())
+}
 }
 
 

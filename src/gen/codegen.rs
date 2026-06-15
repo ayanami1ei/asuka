@@ -9,6 +9,8 @@ pub fn generate(gf: &GrammarFile) -> String {
     ast(gf, &mut o);
     hir(gf, &mut o);
     parser(gf, &mut o);
+    visitor(gf, &mut o);
+    lowering(gf, &mut o);
     o
 }
 
@@ -81,8 +83,15 @@ fn ast(gf: &GrammarFile, o: &mut String) {
 }
 
 fn hir(gf: &GrammarFile, o: &mut String) {
-    if gf.hir.is_empty() { return; }
-    w(o, "// HIR\n#[derive(Clone,Debug)]\npub enum HN{");
+    // Always generate built-in HIR types
+    w(o, "// HIR\n#[derive(Clone,Debug)]\npub struct HIdent{pub s:Span}\n");
+    w(o, "#[derive(Clone,Debug)]\npub struct HInt{pub s:Span,pub v:i64}\n\n");
+
+    if gf.hir.is_empty() {
+        w(o, "#[derive(Clone,Debug)]\npub enum HN{Ident(Box<HIdent>),Int(Box<HInt>)}\n\n");
+        return;
+    }
+    w(o, "#[derive(Clone,Debug)]\npub enum HN{Ident(Box<HIdent>),Int(Box<HInt>),");
     for r in &gf.hir { let n = &r.name.as_str(); w(o, n); w(o, "(Box<H"); w(o, n); w(o, ">),"); }
     w(o, "}\n\n");
     for r in &gf.hir {
@@ -338,6 +347,89 @@ fn builtin_parse(name: &str) -> &'static str {
     }
 }
 
+// ── Visitor ──
+
+fn visitor(gf: &GrammarFile, o: &mut String) {
+    if gf.ast.is_empty() { return; }
+    w(o, "// ── AST Visitor ──\n\n");
+    w(o, "pub trait AstVisit<T>{\n");
+    for r in &gf.ast {
+        let n = &r.name.as_str();
+        w(o, "fn visit_"); w(o, &sf(n)); w(o, "(&mut self,n:&A"); w(o, n); w(o, ")->T;\n");
+    }
+    w(o, "}\n\n");
+
+    // Default walk implementations
+    w(o, "pub struct AstWalk;\n");
+    w(o, "impl<T:Default> AstVisit<T> for AstWalk{\n");
+    for r in &gf.ast {
+        let n = &r.name.as_str();
+        w(o, "fn visit_"); w(o, &sf(n)); w(o, "(&mut self,_n:&A"); w(o, n); w(o, ")->T{T::default()}\n");
+    }
+    w(o, "}\n\n");
+}
+
+// ── Lowering (AST → HIR) ──
+
+fn lowering(gf: &GrammarFile, o: &mut String) {
+    if gf.hir.is_empty() { return; }
+    w(o, "// ── Lowering ──\n\n");
+
+    // Generate lowering harness: for each @hir rule mapping from AST, generate transform code
+    w(o, "pub fn lower_program(ast:&AN)->Result<HN,String>{\n");
+    w(o, "match ast{\n");
+
+    // For each AST rule, check if there's a matching HIR rule
+    // Currently just generates simple direct mapping stubs
+    for r in &gf.hir {
+        let hir_name = &r.name.as_str();
+        let hir_str: &str = hir_name;
+
+        // Extract AST rule name from the HIR production (the referenced non-terminal)
+        let ast_name: &str = get_hir_source(&r.production, &gf.ast);
+        let _hir_snake = sf(hir_str);
+
+        if !ast_name.is_empty() && gf.ast.iter().any(|a| a.name.as_str() == ast_name) {
+            w(o, "AN::"); w(o, ast_name); w(o, "(a)=>{\n");
+            w(o, "// TODO: lower "); w(o, ast_name); w(o, " → "); w(o, hir_name); w(o, "\n");
+            w(o, "unimplemented!()\n");
+            w(o, "}\n");
+        }
+    }
+
+    // Built-in types
+    w(o, "AN::Ident(a)=>Ok(HN::Ident(Box::new(HIdent{s:a.s}))),\n");
+    w(o, "AN::Int(a)=>Ok(HN::Int(Box::new(HInt{s:a.s,v:a.v}))),\n");
+
+    w(o, "_=>Err(\"no lowering defined\".into())\n");
+    w(o, "}\n}\n\n");
+}
+
+
+/// Extract the source AST rule name from a HIR production (e.g., HirFnDecl = FnDecl → "FnDecl")
+fn get_hir_source(prod: &Production, ast_rules: &[Rule]) -> &'static str {
+    match prod {
+        Production::Seq(syms) => {
+            for s in syms {
+                if let ProductionSymbolKind::NonTerm(n) = &s.kind {
+                    let ns = n.as_str();
+                    if ast_rules.iter().any(|r| r.name.as_str() == ns) {
+                        return Box::leak(ns.into_boxed_str());
+                    }
+                }
+            }
+            ""
+        }
+        Production::Alt(alts) => {
+            for a in alts {
+                let r = get_hir_source(a, ast_rules);
+                if !r.is_empty() { return r; }
+            }
+            ""
+        }
+        _ => "",
+    }
+}
 
 // ── Helpers ──
 
