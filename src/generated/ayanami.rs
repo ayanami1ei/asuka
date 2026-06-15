@@ -6,7 +6,7 @@ pub struct Span{pub sl:u32,pub sc:u32,pub el:u32,pub ec:u32}
 impl Span{pub fn d()->Self{Self{sl:0,sc:0,el:0,ec:0}}pub fn mg(&self,o:&Span)->Self{Self{sl:self.sl,sc:self.sc,el:o.el,ec:o.ec}}}
 
 #[derive(Clone,PartialEq,Debug)]
-pub enum TK{Ident,IntLit,StrLit,Fn,Let,Ret,If,El,T,F,Wh,Fr,In,Mt,En,St,KINTERFACE,Im,Pb,Sh,Uq,Wk,Ex,Ip,As,Br,Co,Mut,Slf,Gt,Colon,Dt,Minus,Slash,Eq,FA,Ne,S,Us,RB,RP,Plus,Lt,EqEq,Le,Ge,LB,Star,CC,Ar,RBK,C,LP,LBK,Pct,EOF}
+pub enum TK{Ident,IntLit,StrLit,Fn,Let,Ret,If,El,T,F,Wh,Fr,In,Mt,En,St,KINTERFACE,Im,Pb,Sh,Uq,Wk,Ex,Ip,As,Br,Co,Mut,Slf,S,RBK,RP,Pct,Dt,RB,CC,Ge,Lt,LP,FA,C,Minus,LB,Us,Ne,Colon,Star,Le,Ar,Slash,Eq,LBK,Plus,EqEq,Gt,EOF}
 
 #[derive(Clone,Debug)]
 pub struct Tok{pub k:TK,pub s:Span,pub v:String}
@@ -41,8 +41,8 @@ if self.p+1<self.c.len()&&self.c[self.p+1]=='='{t.push(self.rf("<=",TK::Le))}
 else{t.push(self.rf("<",TK::Lt))}
 }
 '='=>{
-if self.p+1<self.c.len()&&self.c[self.p+1]=='='{t.push(self.rf("==",TK::EqEq))}
 if self.p+1<self.c.len()&&self.c[self.p+1]=='>'{t.push(self.rf("=>",TK::FA))}
+if self.p+1<self.c.len()&&self.c[self.p+1]=='='{t.push(self.rf("==",TK::EqEq))}
 else{t.push(self.rf("=",TK::Eq))}
 }
 '>'=>{

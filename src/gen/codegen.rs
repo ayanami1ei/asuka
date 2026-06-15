@@ -182,7 +182,7 @@ fn parser(gf: &GrammarFile, o: &mut String) {
         if is_op_rule {
             gen_op_parse(&r.production, n, &rule_names, gf, o);
         } else {
-            gen_parse(&r.production, n, &rule_names, o, "");
+            gen_parse(&r.production, n, &rule_names, o, "", gf);
         }
         w(o, "}\n");
     }
@@ -277,7 +277,7 @@ fn find_first_non_op<'a>(prod: &'a Production, rules: &HashSet<String>) -> &'a s
     "expr"
 }
 
-fn gen_parse(prod: &Production, rule_name: &str, rules: &HashSet<String>, o: &mut String, indent: &str) {
+fn gen_parse(prod: &Production, rule_name: &str, rules: &HashSet<String>, o: &mut String, indent: &str, gf: &GrammarFile) {
     match prod {
         Production::Seq(syms) => {
             // (field_name, var_name, is_vec, is_option)
@@ -354,41 +354,123 @@ fn gen_parse(prod: &Production, rule_name: &str, rules: &HashSet<String>, o: &mu
             w(o, "})))\n");
         }
         Production::Alt(alts) => {
-            for alt in alts {
-                if let Production::Seq(syms) = alt {
-                    let first_sym = syms.first().map(|s| &s.kind);
-                    match first_sym {
-                        Some(ProductionSymbolKind::NonTerm(n)) => {
-                            let ns = sf(&n.as_str());
-                            if rules.contains(&ns) {
-                                // Rule-based alternative: try calling the parse method
-                                w(o, &format!("if let Ok(v)=self.p{}(){{return Ok(v)}}\n", ns));
-                                continue;
-                            }
-                            // Built-in token types: just call the built-in parse method directly
-                            let (tk, parse_method) = match ns.as_str() {
-                                "ident" => ("Ident", "pi"),
-                                "int_literal" | "intlit" => ("IntLit", "pn"),
-                                "string_literal" | "strlit" => ("StrLit", "ps"),
-                                _ => { w(o, &format!("//TODO alt {}\n", ns)); continue; }
+            // Check if any alternative is an operator rule (has operator keyword)
+            let has_op_alt = alts.iter().any(|a| has_operator(a));
+            
+            if has_op_alt {
+                // Simple expression parsing: try non-operator alts first, then loop on operator+rhs
+                w(o, "// alt with operator — try each non-op alternative\n");
+                // Generate individual attempts for non-operator alternatives
+                let mut alt_count = 0u32;
+                for alt in alts {
+                    if has_operator(alt) { continue; }
+                    if let Production::Seq(syms) = alt {
+                        if let Some(first) = syms.first() {
+                            let pred = match &first.kind {
+                                ProductionSymbolKind::NonTerm(n) => {
+                                    let ns = sf(&n.as_str());
+                                    if rules.contains(&ns) {
+                                        w(o, &format!("if let Ok(v)=self.p{}(){{let mut lhs=v;", ns));
+                                    } else {
+                                        let tk = match ns.as_str() {
+                                            "ident" => "Ident",
+                                            "int_literal" | "intlit" => "IntLit",
+                                            "string_literal" | "strlit" => "StrLit",
+                                            _ => { w(o, &format!("//TODO alt {}\n", ns)); continue; }
+                                        };
+                                        w(o, &format!("if matches!(self.tok().k,TK::{}){{let mut lhs=self.{}()?;", tk, if ns=="ident"{"pi"}else if ns=="int_literal"||ns=="intlit"{"pn"}else{"ps"}));
+                                    }
+                                    alt_count += 1;
+                                    continue;
+                                }
+                                ProductionSymbolKind::Literal(l) => {
+                                    w(o, &format!("if matches!(self.tok().k,TK::{}){{", ltok(l)));
+                                    alt_count += 1;
+                                    continue;
+                                }
+                                _ => continue,
                             };
-                            w(o, &format!("if matches!(self.tok().k,TK::{}){{return self.{}()}}\n", tk, parse_method));
                         }
-                        Some(ProductionSymbolKind::Literal(l)) => {
-                            w(o, &format!("if matches!(self.tok().k,TK::{}){{\n", ltok(l)));
-                            let struct_name = format!("A{}", rule_name);
-                            gen_seq_alt(syms, rule_name, &struct_name, o);
-                            w(o, "}\n");
+                    }
+                }
+                // Close the alt init blocks and add operator loop
+                w(o, "// operator loop\n");
+                w(o, "loop{match self.tok().k{\n");
+                if let Some(lex) = &gf.lexer {
+                    for op_def in &lex.operators {
+                        w(o, &format!("TK::{} => {{\n", op_name(&op_def.symbol)));
+                        w(o, "self.adv();\n");
+                        // Parse RHS with same alt logic
+                        for alt in alts {
+                            if has_operator(alt) { continue; }
+                            if let Production::Seq(syms) = alt {
+                                if let Some(first) = syms.first() {
+                                    match &first.kind {
+                                        ProductionSymbolKind::NonTerm(n) => {
+                                            let ns = sf(&n.as_str());
+                                            if rules.contains(&ns) {
+                                                w(o, &format!("let rhs=self.p{}()?;\n", ns));
+                                            } else {
+                                                let m = match ns.as_str() {
+                                                    "ident" => "pi",
+                                                    "int_literal"|"intlit" => "pn",
+                                                    _ => "pi",
+                                                };
+                                                w(o, &format!("let rhs=self.{}()?;\n", m));
+                                            }
+                                            break;
+                                        }
+                                        _ => continue,
+                                    }
+                                }
+                            }
                         }
-                        _ => {}
+                        w(o, "lhs=AN::BinaryExpr(Box::new(ABinaryExpr{s:Span::d(),expr:Box::new(lhs),operator:Box::new(AN::Ident(Box::new(AIdent{s:Span::d(),v:String::new()}))),expr_1:Box::new(rhs)}));\n");
+                        w(o, "}\n");
+                    }
+                }
+                w(o, "_=>break}\n}\nreturn Ok(lhs);}\n");
+                // Close the if blocks from alt_count
+                for _ in 0..alt_count { w(o, "}\n"); }
+            } else {
+                for alt in alts {
+                    if let Production::Seq(syms) = alt {
+                        let first_sym = syms.first().map(|s| &s.kind);
+                        match first_sym {
+                            Some(ProductionSymbolKind::NonTerm(n)) => {
+                                let ns = sf(&n.as_str());
+                                if rules.contains(&ns) {
+                                    w(o, &format!("if let Ok(v)=self.p{}(){{return Ok(v)}}\n", ns));
+                                    continue;
+                                }
+                                let (tk, parse_method) = match ns.as_str() {
+                                    "ident" => ("Ident", "pi"),
+                                    "int_literal" | "intlit" => ("IntLit", "pn"),
+                                    "string_literal" | "strlit" => ("StrLit", "ps"),
+                                    _ => { w(o, &format!("//TODO alt {}\n", ns)); continue; }
+                                };
+                                w(o, &format!("if matches!(self.tok().k,TK::{}){{return self.{}()}}\n", tk, parse_method));
+                            }
+                            Some(ProductionSymbolKind::Literal(l)) => {
+                                w(o, &format!("if matches!(self.tok().k,TK::{}){{\n", ltok(l)));
+                                let struct_name = format!("A{}", rule_name);
+                                gen_seq_alt(syms, rule_name, &struct_name, o);
+                                w(o, "}\n");
+                            }
+                            _ => {}
+                        }
                     }
                 }
             }
-            w(o, &format!("Err(format!(\"no alt for {} at {{}}\",self.tok().s.sl))\n", rule_name));
+            if !has_op_alt {
+                w(o, &format!("Err(format!(\"no alt for {} at {{}}\",self.tok().s.sl))\n", rule_name));
+            }
         }
         _ => { w(o, "todo!()\n"); }
     }
 }
+
+
 
 fn gen_seq_alt(syms: &[ProductionSymbol], an_var: &str, a_struct: &str, o: &mut String) {
     // Generate parsing for an alternative sequence, returning the result
@@ -472,7 +554,7 @@ fn lowering(gf: &GrammarFile, o: &mut String) {
     // Built-in types first
     w(o, "AN::Ident(a)=>Ok(HN::Ident(Box::new(HIdent{s:a.s}))),\n");
     w(o, "AN::Int(a)=>Ok(HN::Int(Box::new(HInt{s:a.s,v:a.v}))),\n");
-    w(o, "AN::StringLiteral(a)=>Ok(HN::StringLiteral(Box::new(HStringLiteral{s:a.s,v:a.v}))),\n");
+    w(o, "AN::StringLiteral(a)=>Ok(HN::StringLiteral(Box::new(HStringLiteral{s:a.s,v:a.v.clone()}))),\n");
 
     // Collect all unique AST node names referenced in any way
     let mut ast_nodes: HashSet<String> = HashSet::new();

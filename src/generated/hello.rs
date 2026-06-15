@@ -6,7 +6,7 @@ pub struct Span{pub sl:u32,pub sc:u32,pub el:u32,pub ec:u32}
 impl Span{pub fn d()->Self{Self{sl:0,sc:0,el:0,ec:0}}pub fn mg(&self,o:&Span)->Self{Self{sl:self.sl,sc:self.sc,el:o.el,ec:o.ec}}}
 
 #[derive(Clone,PartialEq,Debug)]
-pub enum TK{Ident,IntLit,StrLit,Fn,Ret,Plus,Star,S,LB,RB,LP,RP,EOF}
+pub enum TK{Ident,IntLit,StrLit,Fn,Ret,RP,Plus,RB,LP,Star,S,LB,EOF}
 
 #[derive(Clone,Debug)]
 pub struct Tok{pub k:TK,pub s:Span,pub v:String}
@@ -18,13 +18,13 @@ pub fn tkz(&mut self)->Vec<Tok>{let mut t=Vec::new();loop{self.skip();if self.p>
 '"'=>t.push(self.rs()),
 c if c.is_ascii_digit()=>t.push(self.rn()),
 c if c.is_alphabetic()||c=='_'=>t.push(self.ri()),
-'+'=>t.push(self.rf("+",TK::Plus)),
+'('=>t.push(self.rf("(",TK::LP)),
+')'=>t.push(self.rf(")",TK::RP)),
 '*'=>t.push(self.rf("*",TK::Star)),
+'+'=>t.push(self.rf("+",TK::Plus)),
 ';'=>t.push(self.rf(";",TK::S)),
 '{'=>t.push(self.rf("{",TK::LB)),
 '}'=>t.push(self.rf("}",TK::RB)),
-'('=>t.push(self.rf("(",TK::LP)),
-')'=>t.push(self.rf(")",TK::RP)),
 _=>panic!("bad '{}'",self.c[self.p])}}
 t.push(Tok{k:TK::EOF,s:Span::d(),v:String::new()});t}
 fn skip(&mut self){loop{let c=self.c.get(self.p);match c{Some(' '|'\t'|'\r')=>{self.p+=1;self.col+=1;}Some('\n')=>{self.p+=1;self.l+=1;self.col=1;}Some('/')if self.p+1<self.c.len()&&self.c[self.p+1]=='/'=>{while self.p<self.c.len(){if self.c[self.p]=='\n'{break}self.p+=1;}}_=>{break}}}}
@@ -39,9 +39,11 @@ fn rf(&mut self,s:&str,k:TK)->Tok{let(sl,sc)=(self.l,self.col);self.p+=s.len();s
 pub struct AIdent{pub s:Span,pub v:String}
 #[derive(Clone,Debug)]
 pub struct AInt{pub s:Span,pub v:i64}
+#[derive(Clone,Debug)]
+pub struct AStringLiteral{pub s:Span,pub v:String}
 
 #[derive(Clone,Debug)]
-pub enum AN{Ident(Box<AIdent>),Int(Box<AInt>),Program(Box<AProgram>),Stmt(Box<AStmt>),FnDecl(Box<AFnDecl>),ReturnStmt(Box<AReturnStmt>),Expr(Box<AExpr>),BinaryExpr(Box<ABinaryExpr>),}
+pub enum AN{Ident(Box<AIdent>),Int(Box<AInt>),StringLiteral(Box<AStringLiteral>),Program(Box<AProgram>),Stmt(Box<AStmt>),FnDecl(Box<AFnDecl>),ReturnStmt(Box<AReturnStmt>),Expr(Box<AExpr>),BinaryExpr(Box<ABinaryExpr>),}
 
 #[derive(Clone,Debug)]
 pub struct AProgram{pub s:Span,pub stmt:Vec<AN>,}
@@ -66,9 +68,11 @@ pub struct ABinaryExpr{pub s:Span,pub expr:Box<AN>,pub operator:Box<AN>,pub expr
 pub struct HIdent{pub s:Span}
 #[derive(Clone,Debug)]
 pub struct HInt{pub s:Span,pub v:i64}
+#[derive(Clone,Debug)]
+pub struct HStringLiteral{pub s:Span,pub v:String}
 
 #[derive(Clone,Debug)]
-pub enum HN{Ident(Box<HIdent>),Int(Box<HInt>),HirFnDecl(Box<HHirFnDecl>),HirReturn(Box<HHirReturn>),HirInt(Box<HHirInt>),HirAdd(Box<HHirAdd>),}
+pub enum HN{Ident(Box<HIdent>),Int(Box<HInt>),StringLiteral(Box<HStringLiteral>),HirFnDecl(Box<HHirFnDecl>),HirReturn(Box<HHirReturn>),HirInt(Box<HHirInt>),HirAdd(Box<HHirAdd>),}
 
 #[derive(Clone,Debug)]
 pub struct HHirFnDecl{pub s:Span,pub fn_decl:Box<HN>,}
@@ -137,6 +141,7 @@ pub fn adv(&mut self){self.p+=1;}
 pub fn e(&mut self,k:TK)->Result<(),String>{if self.tok().k==k{self.adv();Ok(())}else{Err(format!("expected {:?} at {}",k,self.tok().s.sl))}}
 pub fn pi(&mut self)->Result<AN,String>{let t=self.tok().clone();if t.k!=TK::Ident{return Err("id".into());}self.adv();Ok(AN::Ident(Box::new(AIdent{s:t.s,v:t.v})))}
 pub fn pn(&mut self)->Result<AN,String>{let t=self.tok().clone();if t.k!=TK::IntLit{return Err("int".into());}self.adv();let n:i64=t.v.parse().map_err(|_|"bad")?;Ok(AN::Int(Box::new(AInt{s:t.s,v:n})))}
+pub fn ps(&mut self)->Result<AN,String>{let t=self.tok().clone();if t.k!=TK::StrLit{return Err("str".into());}self.adv();Ok(AN::StringLiteral(Box::new(AStringLiteral{s:t.s,v:t.v})))}
 }
 
 // ── AST Visitor ──
@@ -166,18 +171,19 @@ pub fn lower_node(ast:&AN)->Result<HN,String>{
 match ast{
 AN::Ident(a)=>Ok(HN::Ident(Box::new(HIdent{s:a.s}))),
 AN::Int(a)=>Ok(HN::Int(Box::new(HInt{s:a.s,v:a.v}))),
-AN::ReturnStmt(a)=>{
-return Ok(HN::HirReturn(Box::new(HHirReturn{s:a.s,return_stmt:Box::new(lower_node(&a.expr)?)})));
-}
-AN::Stmt(_)=>Err("skip".into()),
+AN::StringLiteral(a)=>Ok(HN::StringLiteral(Box::new(HStringLiteral{s:a.s,v:a.v.clone()}))),
 AN::Expr(_)=>Err("skip".into()),
-AN::FnDecl(a)=>{
-return Ok(HN::HirFnDecl(Box::new(HHirFnDecl{s:a.s,fn_decl:Box::new(lower_node(&a.ident)?)})));
-}
 AN::BinaryExpr(a)=>{
 return Ok(HN::HirAdd(Box::new(HHirAdd{s:a.s,binary_expr:Box::new(lower_node(&a.expr)?)})));
 }
+AN::FnDecl(a)=>{
+return Ok(HN::HirFnDecl(Box::new(HHirFnDecl{s:a.s,fn_decl:Box::new(lower_node(&a.ident)?)})));
+}
+AN::ReturnStmt(a)=>{
+return Ok(HN::HirReturn(Box::new(HHirReturn{s:a.s,return_stmt:Box::new(lower_node(&a.expr)?)})));
+}
 AN::Program(_)=>Err("skip".into()),
+AN::Stmt(_)=>Err("skip".into()),
 _=>Err("unknown node".into())
 }
 }
@@ -188,6 +194,7 @@ pub fn emit_node(n:&HN)->Result<String,String>{
 match n{
 HN::Ident(_)=>Ok(String::new()),
 HN::Int(a)=>Ok(format!("{}",a.v)),
+HN::StringLiteral(a)=>Ok(a.v.clone()),
 HN::HirInt(a)=>{
 Ok(format!("%hir_int = add i64 0, %v"))
 }
