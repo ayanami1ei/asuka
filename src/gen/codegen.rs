@@ -17,8 +17,8 @@ pub fn generate(gf: &GrammarFile) -> String {
         for p in &lex.punctuation { set.insert(p); }
         let mut sorted: Vec<&&str> = set.iter().collect();
         sorted.sort_by_key(|x| std::cmp::Reverse(x.len()));
-        w(&mut o, "pub fn tokenize(input: &str) -> Vec<crate::runtime::Token> {\n");
-        w(&mut o, "    let mut lex = crate::runtime::Lexer::new(input);\n");
+        w(&mut o, "pub fn tokenize(input: &str) -> Vec<asuka::runtime::Token> {\n");
+        w(&mut o, "    let mut lex = asuka::runtime::Lexer::new(input);\n");
         w(&mut o, "    let mut tokens = Vec::new();\n");
         w(&mut o, "    loop {\n");
         w(&mut o, "        lex.skip_ws();\n");
@@ -49,9 +49,9 @@ pub fn generate(gf: &GrammarFile) -> String {
                 for s in &sorted_syms {
                     let kind = s.to_uppercase();
                     if s.len() > 1 {
-                        w(&mut o, &format!("                if self.p+{}<self.c.len()", s.len()-1));
+                        w(&mut o, &format!("                if lex.pos+{}<lex.chars.len()", s.len()-1));
                         for (j, c2) in s.chars().skip(1).enumerate() {
-                            w(&mut o, &format!(" && self.c[self.p+{}]=='{}'", j+1, c2));
+                            w(&mut o, &format!(" && lex.chars[lex.pos+{}]=='{}'", j+1, c2));
                         }
                         w(&mut o, &format!(" {{ tokens.push(lex.read_fixed(\"{}\", \"{}\")); }}\n", s, kind));
                     }
@@ -63,55 +63,55 @@ pub fn generate(gf: &GrammarFile) -> String {
         w(&mut o, "            _ => panic!(\"unexpected '{}'\", c),\n");
         w(&mut o, "        }\n");
         w(&mut o, "    }\n");
-        w(&mut o, "    tokens.push(crate::runtime::Token { kind: \"EOF\".into(), span: crate::runtime::Span::new(), value: String::new() });\n");
+        w(&mut o, "    tokens.push(asuka::runtime::Token { kind: \"EOF\".into(), span: asuka::runtime::Span::new(), value: String::new() });\n");
         w(&mut o, "    tokens\n");
         w(&mut o, "}\n\n");
     }
 
     // Generate parser methods for AST rules
     let rule_names: HashSet<String> = gf.ast.iter().map(|r| sf(&r.name.as_str())).collect();
-    w(&mut o, "pub struct Parser(pub crate::runtime::Parser);\n");
+    w(&mut o, "pub struct Parser(pub asuka::runtime::Parser);\n");
     w(&mut o, "impl Parser {\n");
-    w(&mut o, "    pub fn new(tokens: Vec<crate::runtime::Token>) -> Self { Self(crate::runtime::Parser::new(tokens)) }\n\n");
+    w(&mut o, "    pub fn new(tokens: Vec<asuka::runtime::Token>) -> Self { Self(asuka::runtime::Parser::new(tokens)) }\n\n");
 
     // Built-in parse methods
-    w(&mut o, "    pub fn pi(&mut self) -> Result<crate::runtime::Value, String> {\n");
+    w(&mut o, "    pub fn pi(&mut self) -> Result<asuka::runtime::Value, String> {\n");
     w(&mut o, "        let t = self.0.tok().clone();\n");
     w(&mut o, "        if t.kind != \"Ident\" { return Err(\"expected ident\".into()); }\n");
     w(&mut o, "        self.0.adv();\n");
-    w(&mut o, "        let mut node = crate::runtime::Node::new(\"Ident\");\n");
-    w(&mut o, "        node.set(\"value\", crate::runtime::Value::String(t.value));\n");
-    w(&mut o, "        Ok(crate::runtime::Value::Node(Box::new(node)))\n");
+    w(&mut o, "        let mut node = asuka::runtime::Node::new(\"Ident\");\n");
+    w(&mut o, "        node.set(\"value\", asuka::runtime::Value::String(t.value));\n");
+    w(&mut o, "        Ok(asuka::runtime::Value::Node(Box::new(node)))\n");
     w(&mut o, "    }\n");
-    w(&mut o, "    pub fn pn(&mut self) -> Result<crate::runtime::Value, String> {\n");
+    w(&mut o, "    pub fn pn(&mut self) -> Result<asuka::runtime::Value, String> {\n");
     w(&mut o, "        let t = self.0.tok().clone();\n");
     w(&mut o, "        if t.kind != \"IntLit\" { return Err(\"expected int\".into()); }\n");
     w(&mut o, "        self.0.adv();\n");
     w(&mut o, "        let n: i64 = t.value.parse().map_err(|_| \"bad int\")?;\n");
-    w(&mut o, "        let mut node = crate::runtime::Node::new(\"IntLit\");\n");
-    w(&mut o, "        node.set(\"value\", crate::runtime::Value::Int(n));\n");
-    w(&mut o, "        Ok(crate::runtime::Value::Node(Box::new(node)))\n");
+    w(&mut o, "        let mut node = asuka::runtime::Node::new(\"IntLit\");\n");
+    w(&mut o, "        node.set(\"value\", asuka::runtime::Value::Int(n));\n");
+    w(&mut o, "        Ok(asuka::runtime::Value::Node(Box::new(node)))\n");
     w(&mut o, "    }\n");
-    w(&mut o, "    pub fn ps(&mut self) -> Result<crate::runtime::Value, String> {\n");
+    w(&mut o, "    pub fn ps(&mut self) -> Result<asuka::runtime::Value, String> {\n");
     w(&mut o, "        let t = self.0.tok().clone();\n");
     w(&mut o, "        if t.kind != \"StrLit\" { return Err(\"expected string\".into()); }\n");
     w(&mut o, "        self.0.adv();\n");
-    w(&mut o, "        let mut node = crate::runtime::Node::new(\"StrLit\");\n");
-    w(&mut o, "        node.set(\"value\", crate::runtime::Value::String(t.value));\n");
-    w(&mut o, "        Ok(crate::runtime::Value::Node(Box::new(node)))\n");
+    w(&mut o, "        let mut node = asuka::runtime::Node::new(\"StrLit\");\n");
+    w(&mut o, "        node.set(\"value\", asuka::runtime::Value::String(t.value));\n");
+    w(&mut o, "        Ok(asuka::runtime::Value::Node(Box::new(node)))\n");
     w(&mut o, "    }\n\n");
 
     for r in &gf.ast {
         let name = &r.name.as_str();
         let snake = sf(name);
         let is_alt = matches!(&r.production, Production::Alt(_));
-        w(&mut o, &format!("    pub fn p{}(&mut self) -> Result<crate::runtime::Value, String> {{\n", snake));
+        w(&mut o, &format!("    pub fn p{}(&mut self) -> Result<asuka::runtime::Value, String> {{\n", snake));
         if !is_alt {
-            w(&mut o, &format!("        let mut n = crate::runtime::Node::new(\"{}\");\n", name));
+            w(&mut o, &format!("        let mut n = asuka::runtime::Node::new(\"{}\");\n", name));
         }
         gen_node_builder(&r.production, &rule_names, &mut o, "        ");
         if !is_alt {
-            w(&mut o, &format!("        Ok(crate::runtime::Value::Node(Box::new(n)))\n"));
+            w(&mut o, &format!("        Ok(asuka::runtime::Value::Node(Box::new(n)))\n"));
         }
         w(&mut o, "    }\n\n");
     }
@@ -147,12 +147,12 @@ fn gen_node_builder(prod: &Production, rules: &HashSet<String>, o: &mut String, 
                                 "string_literal" | "strlit" => "ps",
                                 _ => &format!("p{}", ns),
                             };
-                            w(o, &format!("{}if let crate::runtime::Value::Node(child) = self.{}()? {{\n", indent, method));
-                            w(o, &format!("{}    n.set(\"{}\", crate::runtime::Value::Node(child));\n", indent, field));
+                            w(o, &format!("{}if let asuka::runtime::Value::Node(child) = self.{}()? {{\n", indent, method));
+                            w(o, &format!("{}    n.set(\"{}\", asuka::runtime::Value::Node(child));\n", indent, field));
                             w(o, &format!("{}}}\n", indent));
                         } else {
-                            w(o, &format!("{}if let crate::runtime::Value::Node(child) = self.pi()? {{\n", indent));
-                            w(o, &format!("{}    n.set(\"{}\", crate::runtime::Value::Node(child));\n", indent, field));
+                            w(o, &format!("{}if let asuka::runtime::Value::Node(child) = self.pi()? {{\n", indent));
+                            w(o, &format!("{}    n.set(\"{}\", asuka::runtime::Value::Node(child));\n", indent, field));
                             w(o, &format!("{}}}\n", indent));
                         }
                     }
@@ -204,7 +204,7 @@ fn gen_node_builder(prod: &Production, rules: &HashSet<String>, o: &mut String, 
 fn gen_alt_seq_builder(syms: &[ProductionSymbol], rule_name: &str, rules: &HashSet<String>, o: &mut String, indent: &str) {
     // Generate code to build a Node for this specific alternative
     let field_name = sf(rule_name);
-    w(o, &format!("{}let mut node = crate::runtime::Node::new(\"{}\");\n", indent, rule_name));
+    w(o, &format!("{}let mut node = asuka::runtime::Node::new(\"{}\");\n", indent, rule_name));
     for s in syms {
         match &s.kind {
             ProductionSymbolKind::Literal(lit) => {
@@ -220,14 +220,14 @@ fn gen_alt_seq_builder(syms: &[ProductionSymbol], rule_name: &str, rules: &HashS
                     "string_literal" | "strlit" => "ps",
                     _ => &format!("p{}", ns),
                 };
-                w(o, &format!("{}if let crate::runtime::Value::Node(child) = self.{}()? {{\n", indent, method));
-                w(o, &format!("{}    node.set(\"{}\", crate::runtime::Value::Node(child));\n", indent, field));
+                w(o, &format!("{}if let asuka::runtime::Value::Node(child) = self.{}()? {{\n", indent, method));
+                w(o, &format!("{}    node.set(\"{}\", asuka::runtime::Value::Node(child));\n", indent, field));
                 w(o, &format!("{}}}\n", indent));
             }
             _ => {}
         }
     }
-    w(o, &format!("{}return Ok(crate::runtime::Value::Node(Box::new(node)));\n", indent));
+    w(o, &format!("{}return Ok(asuka::runtime::Value::Node(Box::new(node)));\n", indent));
 }
 
 fn gen_group_builder(inner: &Production, rules: &HashSet<String>, o: &mut String, indent: &str) {
