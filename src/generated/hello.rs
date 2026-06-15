@@ -1,7 +1,7 @@
 // @generated
-#![allow(non_camel_case_types,unused)]
+#[allow(non_camel_case_types,unused)]
 
-#[derive(Clone,Copy)]
+#[derive(Clone,Copy,Debug)]
 pub struct Span{pub sl:u32,pub sc:u32,pub el:u32,pub ec:u32}
 impl Span{pub fn d()->Self{Self{sl:0,sc:0,el:0,ec:0}}pub fn mg(&self,o:&Span)->Self{Self{sl:self.sl,sc:self.sc,el:o.el,ec:o.ec}}}
 
@@ -44,38 +44,38 @@ pub struct AInt{pub s:Span,pub v:i64}
 pub enum AN{Ident(Box<AIdent>),Int(Box<AInt>),Program(Box<AProgram>),Stmt(Box<AStmt>),FnDecl(Box<AFnDecl>),ReturnStmt(Box<AReturnStmt>),Expr(Box<AExpr>),BinaryExpr(Box<ABinaryExpr>),}
 
 #[derive(Clone,Debug)]
-pub struct AProgram{pub s:Span,pubstmt:Box<AN>,}
+pub struct AProgram{pub s:Span,pub stmt:Box<AN>,}
 
 #[derive(Clone,Debug)]
 pub struct AStmt{pub s:Span,}
 
 #[derive(Clone,Debug)]
-pub struct AFnDecl{pub s:Span,pubident:Box<AN>,pubstmt:Box<AN>,}
+pub struct AFnDecl{pub s:Span,pub ident:Box<AN>,pub stmt:Box<AN>,}
 
 #[derive(Clone,Debug)]
-pub struct AReturnStmt{pub s:Span,pubexpr:Box<AN>,}
+pub struct AReturnStmt{pub s:Span,pub expr:Box<AN>,}
 
 #[derive(Clone,Debug)]
 pub struct AExpr{pub s:Span,}
 
 #[derive(Clone,Debug)]
-pub struct ABinaryExpr{pub s:Span,pubexpr:Box<AN>,puboperator:Box<AN>,pubexpr:Box<AN>,}
+pub struct ABinaryExpr{pub s:Span,pub expr:Box<AN>,pub operator:Box<AN>,pub expr_1:Box<AN>,}
 
 // HIR
 #[derive(Clone,Debug)]
 pub enum HN{HirFnDecl(Box<HHirFnDecl>),HirReturn(Box<HHirReturn>),HirInt(Box<HHirInt>),HirAdd(Box<HHirAdd>),}
 
 #[derive(Clone,Debug)]
-pub struct HHirFnDecl{pub s:Span,pubfn_decl:Box<HN>,}
+pub struct HHirFnDecl{pub s:Span,pub fn_decl:Box<HN>,}
 
 #[derive(Clone,Debug)]
-pub struct HHirReturn{pub s:Span,pubreturn_stmt:Box<HN>,}
+pub struct HHirReturn{pub s:Span,pub return_stmt:Box<HN>,}
 
 #[derive(Clone,Debug)]
-pub struct HHirInt{pub s:Span,pubint_literal:Box<HN>,}
+pub struct HHirInt{pub s:Span,pub int_literal:Box<HN>,}
 
 #[derive(Clone,Debug)]
-pub struct HHirAdd{pub s:Span,pubbinary_expr:Box<HN>,}
+pub struct HHirAdd{pub s:Span,pub binary_expr:Box<HN>,}
 
 // Parser
 pub struct P{pub t:Vec<Tok>,pub p:usize}
@@ -83,34 +83,47 @@ impl P{pub fn new(t:Vec<Tok>)->Self{Self{t,p:0}}
 pub fn pprogram(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
 let a0=self.pstmt()?;
+Ok(AN::Program(Box::new(AProgram {s:Span::d(),stmt:Box::new(a0),})))
 }
 pub fn pstmt(&mut self)->Result<AN,String>{
-todo!()
+// alternatives
+let saved=self.p;
+// try alternative 0self.p=saved;
+// try alternative 1// TODO: proper alternatives
+Err("alt".to_string())
 }
 pub fn pfn_decl(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
 self.e(TK::Fn)?;
-let a1=self.pident()?;
+let a0=self.pi()?;
 self.e(TK::LP)?;
 self.e(TK::RP)?;
 self.e(TK::LB)?;
-let a2=self.pstmt()?;
+let a1=self.pstmt()?;
 self.e(TK::RB)?;
+Ok(AN::FnDecl(Box::new(AFnDecl {s:Span::d(),ident:Box::new(a0),stmt:Box::new(a1),})))
 }
 pub fn preturn_stmt(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
 self.e(TK::Ret)?;
-let a3=self.pexpr()?;
+let a0=self.pexpr()?;
 self.e(TK::S)?;
+Ok(AN::ReturnStmt(Box::new(AReturnStmt {s:Span::d(),expr:Box::new(a0),})))
 }
 pub fn pexpr(&mut self)->Result<AN,String>{
-todo!()
+// alternatives
+let saved=self.p;
+// try alternative 0self.p=saved;
+// try alternative 1self.p=saved;
+// try alternative 2// TODO: proper alternatives
+Err("alt".to_string())
 }
 pub fn pbinary_expr(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
-let a4=self.pexpr()?;
-let a5=self.poperator()?;
-let a6=self.pexpr()?;
+let a0=self.pexpr()?;
+let a1=self.pi()?;
+let a2=self.pexpr()?;
+Ok(AN::BinaryExpr(Box::new(ABinaryExpr {s:Span::d(),expr:Box::new(a0),operator:Box::new(a1),expr_1:Box::new(a2),})))
 }
 pub fn tok(&self)->&Tok{&self.t[self.p]}
 pub fn adv(&mut self){self.p+=1;}

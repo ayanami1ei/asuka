@@ -1,8 +1,9 @@
 use crate::grammar::ir::*;
+use std::collections::HashSet;
 
 pub fn generate(gf: &GrammarFile) -> String {
     let mut o = String::new();
-    o.push_str("// @generated\n#![allow(non_camel_case_types,unused)]\n\n");
+    w(&mut o, "// @generated\n#[allow(non_camel_case_types,unused)]\n\n");
     span(&mut o);
     tokens(gf, &mut o);
     ast(gf, &mut o);
@@ -13,11 +14,15 @@ pub fn generate(gf: &GrammarFile) -> String {
 
 fn w(o: &mut String, s: &str) { o.push_str(s); }
 
+// ── Span ──
+
 fn span(o: &mut String) {
-    w(o, "#[derive(Clone,Copy)]\npub struct Span{pub sl:u32,pub sc:u32,pub el:u32,pub ec:u32}\n");
+    w(o, "#[derive(Clone,Copy,Debug)]\npub struct Span{pub sl:u32,pub sc:u32,pub el:u32,pub ec:u32}\n");
     w(o, "impl Span{pub fn d()->Self{Self{sl:0,sc:0,el:0,ec:0}}");
     w(o, "pub fn mg(&self,o:&Span)->Self{Self{sl:self.sl,sc:self.sc,el:o.el,ec:o.ec}}}\n\n");
 }
+
+// ── Lexer / Tokens ──
 
 fn tokens(gf: &GrammarFile, o: &mut String) {
     w(o, "#[derive(Clone,PartialEq,Debug)]\npub enum TK{Ident,IntLit,StrLit,");
@@ -52,6 +57,8 @@ fn tokens(gf: &GrammarFile, o: &mut String) {
     w(o, "fn rf(&mut self,s:&str,k:TK)->Tok{let(sl,sc)=(self.l,self.col);self.p+=s.len();self.col+=s.len()as u32;Tok{k,s:Span{sl,sc,el:self.l,ec:self.col},v:s.to_string()}}\n}\n\n");
 }
 
+// ── AST ──
+
 fn ast(gf: &GrammarFile, o: &mut String) {
     w(o, "// AST\n#[derive(Clone,Debug)]\npub struct AIdent{pub s:Span,pub v:String}\n#[derive(Clone,Debug)]\npub struct AInt{pub s:Span,pub v:i64}\n\n");
     w(o, "#[derive(Clone,Debug)]\npub enum AN{Ident(Box<AIdent>),Int(Box<AInt>),");
@@ -60,9 +67,13 @@ fn ast(gf: &GrammarFile, o: &mut String) {
     for r in &gf.ast {
         let n = &r.name.as_str();
         w(o, "#[derive(Clone,Debug)]\npub struct A"); w(o, n); w(o, "{pub s:Span,");
+        let mut seen = HashSet::new();
+        let mut dup = 0u32;
         for s in get_syms(&r.production) {
             if let ProductionSymbolKind::NonTerm(n2) = &s.kind {
-                w(o, &format!("pub{}:Box<AN>,", sf(&n2.as_str())));
+                let fname = sf(&n2.as_str());
+                let unique = if seen.contains(&fname) { dup += 1; format!("{}_{}", fname, dup) } else { seen.insert(fname.clone()); fname };
+                w(o, &format!("pub {}:Box<AN>,", unique));
             }
         }
         w(o, "}\n\n");
@@ -77,50 +88,97 @@ fn hir(gf: &GrammarFile, o: &mut String) {
     for r in &gf.hir {
         let n = &r.name.as_str();
         w(o, "#[derive(Clone,Debug)]\npub struct H"); w(o, n); w(o, "{pub s:Span,");
+        let mut seen = HashSet::new();
+        let mut dup = 0u32;
         for s in get_syms(&r.production) {
             if let ProductionSymbolKind::NonTerm(n2) = &s.kind {
-                w(o, &format!("pub{}:Box<HN>,", sf(&n2.as_str())));
+                let fname = sf(&n2.as_str());
+                let unique = if seen.contains(&fname) { dup += 1; format!("{}_{}", fname, dup) } else { seen.insert(fname.clone()); fname };
+                w(o, &format!("pub {}:Box<HN>,", unique));
             }
         }
         w(o, "}\n\n");
     }
 }
 
+// ── Parser ──
+
 fn parser(gf: &GrammarFile, o: &mut String) {
     if gf.ast.is_empty() { return; }
     w(o, "// Parser\npub struct P{pub t:Vec<Tok>,pub p:usize}\n");
     w(o, "impl P{pub fn new(t:Vec<Tok>)->Self{Self{t,p:0}}\n");
-    let mut fi = 0u32;
+
     for r in &gf.ast {
         let n = &r.name.as_str();
         w(o, "pub fn p"); w(o, &sf(n)); w(o, "(&mut self)->Result<AN,String>{\n");
-        match &r.production {
-            Production::Seq(syms) => {
-                w(o, "let _s=self.tok().s;\n");
-                for s in syms {
-                    match &s.kind {
-                        ProductionSymbolKind::Literal(l) => { w(o, &format!("self.e(TK::{})?;\n", ltok(l))); }
-                        ProductionSymbolKind::NonTerm(n2) => {
-                            let ns = sf(&n2.as_str());
-                            if ns != "op" && ns != "list" && ns != "typ" {
-                                w(o, &format!("let a{}=self.p{}()?;\n", fi, ns));
-                                fi += 1;
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            _ => { w(o, "todo!()\n"); }
-        }
+        gen_parse(&r.production, n, &gf.ast, o, "");
         w(o, "}\n");
     }
+
     w(o, "pub fn tok(&self)->&Tok{&self.t[self.p]}\npub fn adv(&mut self){self.p+=1;}\n");
     w(o, "pub fn e(&mut self,k:TK)->Result<(),String>{if self.tok().k==k{self.adv();Ok(())}else{Err(format!(\"expected {:?}\",k))}}\n");
     w(o, "pub fn pi(&mut self)->Result<AN,String>{let t=self.tok().clone();if t.k!=TK::Ident{return Err(\"id\".into());}self.adv();Ok(AN::Ident(Box::new(AIdent{s:t.s,v:t.v})))}\n");
     w(o, "pub fn pn(&mut self)->Result<AN,String>{let t=self.tok().clone();if t.k!=TK::IntLit{return Err(\"int\".into());}self.adv();let n:i64=t.v.parse().map_err(|_|\"bad\")?;Ok(AN::Int(Box::new(AInt{s:t.s,v:n})))}\n");
     w(o, "}\n\n");
 }
+
+fn gen_parse(prod: &Production, rule_name: &str, rules: &[Rule], o: &mut String, indent: &str) {
+    match prod {
+        Production::Seq(syms) => {
+            let mut captures: Vec<(String, String)> = Vec::new(); // (field_name, var_name)
+            let mut seen = HashSet::new();
+            let mut dup = 0u32;
+            let mut vi = 0u32;
+
+            w(o, "let _s=self.tok().s;\n");
+            for s in syms {
+                match &s.kind {
+                    ProductionSymbolKind::Literal(lit) => {
+                        w(o, &format!("self.e(TK::{})?;\n", ltok(lit)));
+                    }
+                    ProductionSymbolKind::NonTerm(n2) => {
+                        let ns = sf(&n2.as_str());
+                        if ns == "op" { w(o, "//TODO: operator expr\n"); continue; }
+                        if ns == "list" { w(o, "//TODO: expr list\n"); continue; }
+                        let var = format!("a{}", vi); vi += 1;
+                        let is_rule = rules.iter().any(|r| sf(&r.name.as_str()) == ns);
+                        if is_rule {
+                            w(o, &format!("let {}=self.p{}()?;\n", var, ns));
+                        } else {
+                            w(o, &format!("let {}=self.pi()?;\n", var));
+                        }
+                        let fname = sf(&n2.as_str());
+                        let field = if seen.contains(&fname) { dup += 1; format!("{}_{}", fname, dup) } else { seen.insert(fname.clone()); fname };
+                        captures.push((field, var));
+                    }
+                    _ => {}
+                }
+            }
+            w(o, &format!("Ok(AN::{}(Box::new(A{} {{s:Span::d(),", rule_name, rule_name));
+            for (field, var) in &captures {
+                w(o, &format!("{}:Box::new({}),", field, var));
+            }
+            w(o, "})))\n");
+        }
+        Production::Alt(alts) => {
+            w(o, "// alternatives\n");
+            for (i, alt) in alts.iter().enumerate() {
+                if i == 0 {
+                    w(o, "let saved=self.p;\n");
+                } else {
+                    w(o, "self.p=saved;\n");
+                }
+                w(o, &format!("// try alternative {}", i));
+            }
+            // For now, just try each one with a simple approach
+            w(o, "// TODO: proper alternatives\n");
+            w(o, "Err(\"alt\".to_string())\n");
+        }
+        _ => { w(o, "todo!()\n"); }
+    }
+}
+
+// ── Helpers ──
 
 fn get_syms(p: &Production) -> Vec<&ProductionSymbol> {
     match p { Production::Seq(s) => s.iter().collect(), _ => vec![] }
