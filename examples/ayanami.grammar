@@ -4,7 +4,7 @@
     keyword: "fn", "let", "return", "if", "else", "true", "false", "while",
              "for", "in", "match", "enum", "struct", "interface", "impl",
              "pub", "shared", "unique", "weak", "extern", "import", "as",
-             "break", "continue", "mut"
+             "break", "continue", "mut", "self"
     operator: "+" (prec:5, assoc:left)
               "-" (prec:5, assoc:left)
               "*" (prec:6, assoc:left)

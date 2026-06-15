@@ -116,6 +116,7 @@ fn ast(gf: &GrammarFile, o: &mut String) {
                 let field = if seen.contains(&fname) { dup += 1; format!("{}_{}", fname, dup) } else { seen.insert(fname.clone()); fname.clone() };
                 match s.quantifier {
                     Quantifier::Repeat => { w(o, &format!("pub {}:Vec<AN>,", field)); }
+                    Quantifier::Optional => { w(o, &format!("pub {}:Option<Box<AN>>,", field)); }
                     _ => { w(o, &format!("pub {}:Box<AN>,", field)); }
                 }
             }
@@ -279,8 +280,8 @@ fn find_first_non_op<'a>(prod: &'a Production, rules: &HashSet<String>) -> &'a s
 fn gen_parse(prod: &Production, rule_name: &str, rules: &HashSet<String>, o: &mut String, indent: &str) {
     match prod {
         Production::Seq(syms) => {
-            // (field_name, var_name, is_vec)
-            let mut captures: Vec<(String, String, bool)> = Vec::new();
+            // (field_name, var_name, is_vec, is_option)
+            let mut captures: Vec<(String, String, bool, bool)> = Vec::new();
             let mut seen = HashSet::new();
             let mut dup = 0u32;
             let mut vi = 0u32;
@@ -300,17 +301,20 @@ fn gen_parse(prod: &Production, rule_name: &str, rules: &HashSet<String>, o: &mu
                         w(o, "while let Ok(v)=self.p"); w(o, &ns); w(o, "(){"); w(o, &var); w(o, ".push(v)}\n");
                         let fname = sf(&ns);
                         let field = if seen.contains(&fname) { dup += 1; format!("{}_{}", fname, dup) } else { seen.insert(fname.clone()); fname };
-                        captures.push((field, var, true));
+                        captures.push((field, var, true, false));
                     }
                     Quantifier::Optional => {
-                        // Optional — skip for now
+                        // Optional: try parsing, store as Option
                         let ns = match &s.kind {
                             ProductionSymbolKind::NonTerm(n) => sf(&n.as_str()),
                             _ => continue,
                         };
                         if ns.is_empty() { continue; }
-                        // Just try parsing, but don't store the result (TODO: handle optionals properly)
-                        w(o, &format!("let _ = self.p{}();\n", ns));
+                        let var = format!("a{}", vi); vi += 1;
+                        w(o, &format!("let {} = self.p{}().ok();\n", var, ns));
+                        let fname = sf(&ns);
+                        let field = if seen.contains(&fname) { dup += 1; format!("{}_{}", fname, dup) } else { seen.insert(fname.clone()); fname };
+                        captures.push((field, var, false, true));
                     }
                     Quantifier::Exactly => {
                         match &s.kind {
@@ -330,7 +334,7 @@ fn gen_parse(prod: &Production, rule_name: &str, rules: &HashSet<String>, o: &mu
                                 let fname = sf(&n2.as_str());
                                 if fname.is_empty() { continue; }
                                 let field = if seen.contains(&fname) { dup += 1; format!("{}_{}", fname, dup) } else { seen.insert(fname.clone()); fname };
-                                captures.push((field, var, false));
+                                captures.push((field, var, false, false));
                             }
                             _ => {}
                         }
@@ -338,9 +342,11 @@ fn gen_parse(prod: &Production, rule_name: &str, rules: &HashSet<String>, o: &mu
                 }
             }
             w(o, &format!("Ok(AN::{}(Box::new(A{} {{s:Span::d(),", rule_name, rule_name));
-            for (field, var, is_vec) in &captures {
+            for (field, var, is_vec, is_option) in &captures {
                 if *is_vec {
                     w(o, &format!("{}:{},", field, var));
+                } else if *is_option {
+                    w(o, &format!("{}:{}.map(|v|Box::new(v)),", field, var));
                 } else {
                     w(o, &format!("{}:Box::new({}),", field, var));
                 }
@@ -649,7 +655,7 @@ fn kw(s: &str) -> String {
               "impl"=>"Im".into(),"pub"=>"Pb".into(),"shared"=>"Sh".into(),
               "unique"=>"Uq".into(),"weak"=>"Wk".into(),"extern"=>"Ex".into(),
               "import"=>"Ip".into(),"as"=>"As".into(),"break"=>"Br".into(),"continue"=>"Co".into(),
-              "mut"=>"Mut".into(), _ => format!("K{}", s.to_uppercase()) }
+              "mut"=>"Mut".into(),"self"=>"Slf".into(), _ => format!("K{}", s.to_uppercase()) }
 }
 
 fn op_name(s: &str) -> String {
