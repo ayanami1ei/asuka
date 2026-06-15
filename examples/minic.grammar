@@ -1,0 +1,80 @@
+// Mini C — C 子集文法 for Asuka
+
+@lexer {
+    keyword: "int", "char", "void", "if", "else", "while", "for",
+             "return", "break", "continue", "struct", "sizeof",
+             "typedef", "const", "static", "extern", "unsigned",
+             "long", "short", "enum", "switch", "case", "default",
+             "do"
+    operator: "+" (prec:4, assoc:left)
+              "-" (prec:4, assoc:left)
+              "*" (prec:5, assoc:left)
+              "/" (prec:5, assoc:left)
+              "%" (prec:5, assoc:left)
+              "==" (prec:3, assoc:left)
+              "!=" (prec:3, assoc:left)
+              "<" (prec:3, assoc:left)
+              ">" (prec:3, assoc:left)
+              "<=" (prec:3, assoc:left)
+              ">=" (prec:3, assoc:left)
+              "&&" (prec:2, assoc:left)
+              "||" (prec:1, assoc:left)
+              "=" (prec:0, assoc:right)
+              "[" (prefix, group)
+              "]" (prefix)
+              "(" (prefix, group)
+              ")" (prefix)
+              "{" (prefix, group)
+              "}" (prefix)
+    punct: ";", "{", "}", "(", ")", "[", "]", ",", ".",
+           "->", "&", "!", "~", "?", ":"
+}
+
+@ast {
+    Program     = Stmt*;
+    Stmt        = VarDecl | FnDecl | IfStmt | WhileStmt | ForStmt
+                 | ReturnStmt | BreakStmt | ContinueStmt | Block | ExprStmt;
+
+    VarDecl     = Type Ident ("=" Expr)? ";";
+    FnDecl      = Type Ident "(" ParamList? ")" Block;
+    ParamList   = Param ("," Param)*;
+    Param       = Type Ident?;
+
+    Block       = "{" Stmt* "}";
+
+    IfStmt      = "if" "(" Expr ")" Stmt ("else" Stmt)?;
+    WhileStmt   = "while" "(" Expr ")" Stmt;
+    ForStmt     = "for" "(" Expr? ";" Expr? ";" Expr? ")" Stmt;
+    ReturnStmt  = "return" Expr? ";";
+    BreakStmt   = "break" ";";
+    ContinueStmt= "continue" ";";
+    ExprStmt    = Expr ";";
+
+    Type        = TypeSpec ("*")*;
+    TypeSpec    = "int" | "char" | "void" | "struct" Ident;
+
+    Expr        = AssignExpr | CondExpr | LogOrExpr | LogAndExpr | CmpExpr
+                 | AddExpr | MulExpr | UnaryExpr | PostfixExpr | PrimaryExpr;
+    AssignExpr  = UnaryExpr "=" Expr;
+    CondExpr    = LogOrExpr "?" Expr ":" Expr;
+    LogOrExpr   = LogAndExpr ("||" LogAndExpr)*;
+    LogAndExpr  = CmpExpr ("&&" CmpExpr)*;
+    CmpExpr     = AddExpr (("<" | ">" | "<=" | ">=" | "==" | "!=") AddExpr)*;
+    AddExpr     = MulExpr (("+" | "-") MulExpr)*;
+    MulExpr     = UnaryExpr (("*" | "/" | "%") UnaryExpr)*;
+    UnaryExpr   = ("-" | "!" | "&" | "*")? PostfixExpr;
+    PostfixExpr = PrimaryExpr ("[" Expr "]" | "." Ident | "->" Ident | "(" ExprList? ")")*;
+
+    PrimaryExpr = Ident | IntLiteral | StringLiteral | "(" Expr ")" | SizeofExpr;
+    SizeofExpr  = "sizeof" "(" Type ")";
+    ExprList    = Expr ("," Expr)*;
+}
+
+@hir {
+    HirInt = IntLiteral;
+    HirIdent = Ident;
+}
+
+@pipeline {
+    parse → lex, parse_ast;
+}

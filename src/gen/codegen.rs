@@ -311,7 +311,14 @@ fn gen_parse(prod: &Production, rule_name: &str, rules: &HashSet<String>, o: &mu
                         };
                         if ns.is_empty() { continue; }
                         let var = format!("a{}", vi); vi += 1;
-                        w(o, &format!("let {} = self.p{}().ok();\n", var, ns));
+                        // Check if it's a built-in type
+                        if ns == "ident" {
+                            w(o, &format!("let {} = self.pi().ok();\n", var));
+                        } else if ns == "int_literal" || ns == "intlit" {
+                            w(o, &format!("let {} = self.pn().ok();\n", var));
+                        } else {
+                            w(o, &format!("let {} = self.p{}().ok();\n", var, ns));
+                        }
                         let fname = sf(&ns);
                         let field = if seen.contains(&fname) { dup += 1; format!("{}_{}", fname, dup) } else { seen.insert(fname.clone()); fname };
                         captures.push((field, var, false, true));
@@ -451,12 +458,12 @@ fn gen_parse(prod: &Production, rule_name: &str, rules: &HashSet<String>, o: &mu
                                 };
                                 w(o, &format!("if matches!(self.tok().k,TK::{}){{return self.{}()}}\n", tk, parse_method));
                             }
-                            Some(ProductionSymbolKind::Literal(l)) => {
-                                w(o, &format!("if matches!(self.tok().k,TK::{}){{\n", ltok(l)));
-                                let struct_name = format!("A{}", rule_name);
-                                gen_seq_alt(syms, rule_name, &struct_name, o);
-                                w(o, "}\n");
-                            }
+                        Some(ProductionSymbolKind::Literal(l)) => {
+                            w(o, &format!("if matches!(self.tok().k,TK::{}){{\n", ltok(l)));
+                            let struct_name = format!("A{}", rule_name);
+                            gen_seq_alt(syms, rule_name, &struct_name, o, false);
+                            w(o, "}\n");
+                        }
                             _ => {}
                         }
                     }
@@ -472,7 +479,7 @@ fn gen_parse(prod: &Production, rule_name: &str, rules: &HashSet<String>, o: &mu
 
 
 
-fn gen_seq_alt(syms: &[ProductionSymbol], an_var: &str, a_struct: &str, o: &mut String) {
+fn gen_seq_alt(syms: &[ProductionSymbol], an_var: &str, a_struct: &str, o: &mut String, _use_captures: bool) {
     // Generate parsing for an alternative sequence, returning the result
     let mut captures: Vec<(String, String)> = Vec::new();
     let mut seen = HashSet::new();
@@ -505,8 +512,11 @@ fn gen_seq_alt(syms: &[ProductionSymbol], an_var: &str, a_struct: &str, o: &mut 
         }
     }
     // Return the result as the target node type
-    w(o, &format!("return Ok(AN::{}(Box::new({}{{s:Span::d(),", an_var, a_struct));
-    for (field, var) in &captures { w(o, &format!("{}:Box::new({}),", field, var)); }
+    w(o, &format!("return Ok(AN::{}(Box::new({}{{s:Span::d()", an_var, a_struct));
+    if _use_captures {
+        w(o, ",");
+        for (field, var) in &captures { w(o, &format!("{}:Box::new({}),", field, var)); }
+    }
     w(o, "})));\n");
 }
 
@@ -744,7 +754,7 @@ fn op_name(s: &str) -> String {
     match s { "+"=>"Plus".into(),"-"=>"Minus".into(),"*"=>"Star".into(),"/"=>"Slash".into(),
               "("=>"LP".into(),")"=>"RP".into(),"{"=>"LB".into(),"}"=>"RB".into(),
               "["=>"LBK".into(),"]"=>"RBK".into(),
-              ";"=>"S".into(),","=>"C".into(),":"=>"Colon".into(),"."=>"Dt".into(),"::"=>"CC".into(),
+              ";"=>"S".into(),","=>"C".into(),":"=>"Colon".into(),"?"=>"Q".into(),"."=>"Dt".into(),"::"=>"CC".into(),
               "->"=>"Ar".into(),"=>"=>"FA".into(),
               "="=>"Eq".into(),"=="=>"EqEq".into(),"!="=>"Ne".into(),"!"=>"Bg".into(),
               "<"=>"Lt".into(),">"=>"Gt".into(),"<="=>"Le".into(),">="=>"Ge".into(),
