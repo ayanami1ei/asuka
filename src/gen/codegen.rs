@@ -457,21 +457,44 @@ fn lowering(gf: &GrammarFile, o: &mut String) {
                 w(o, &format!("if a.{} != \"{}\" {{ ", fname, expected_val));
             }
 
-            // Build the HIR node with only span (child fields use stub)
+            // Build the HIR node: map captures to HIR fields
             w(o, "return Ok(HN::"); w(o, hir_name); w(o, "(Box::new(H"); w(o, hir_name); w(o, "{s:a.s");
-            // Add stub fields for all struct members (skip s which is already set)
             let hir_str2: &str = hir_name;
-            let hirs: Vec<&Rule> = gf.hir.iter().filter(|r| r.name.as_str() == hir_str2).collect();
+            let hirs: Vec<&Rule> = gf.hir.iter().filter(|r| &r.name.as_str() == hir_str2).collect();
+            // Collect HIR struct field names (for all non-operator symbols)
+            let mut hir_fields: Vec<String> = Vec::new();
+            let mut seen_hir = HashSet::new();
+            let mut dup_hir = 0u32;
             if let Some(hir_rule) = hirs.first() {
-                let mut seen = HashSet::new();
-                let mut dup = 0u32;
                 for sym in get_syms(&hir_rule.production) {
                     if let ProductionSymbolKind::NonTerm(n) = &sym.kind {
                         let ns = sf(&n.as_str());
-                        let fname = if seen.contains(&ns) { dup += 1; format!("{}_{}", ns, dup) } else { seen.insert(ns.clone()); ns };
-                        w(o, &format!(",{}:todo!()", fname));
+                        let fname = if seen_hir.contains(&ns) { dup_hir += 1; format!("{}_{}", ns, dup_hir) } else { seen_hir.insert(ns.clone()); ns.clone() };
+                        hir_fields.push(fname);
                     }
                 }
+            }
+            // Map each replacement arg to the corresponding HIR field and AST field (by position)
+            // Collect AST non-operator child field names from the grammar rule
+            let ast_rule = &gf.ast.iter().find(|r| r.name.as_str() == ast_name.as_str());
+            let mut ast_non_op_fields: Vec<String> = Vec::new();
+            if let Some(ar) = ast_rule {
+                let mut seen_ast = HashSet::new();
+                let mut dup_ast = 0u32;
+                for sym in get_syms(&ar.production) {
+                    if let ProductionSymbolKind::NonTerm(n) = &sym.kind {
+                        let ns = sf(&n.as_str());
+                        if ns == "op" { continue; }
+                        let fname = if seen_ast.contains(&ns) { dup_ast += 1; format!("{}_{}", ns, dup_ast) } else { seen_ast.insert(ns.clone()); ns.clone() };
+                        ast_non_op_fields.push(fname);
+                    }
+                }
+            }
+            for (pos, arg) in tr.replacement.args.iter().enumerate() {
+                let hir_field = hir_fields.get(pos);
+                let Some(hir_field) = hir_field else { continue; };
+                let ast_field = ast_non_op_fields.get(pos).cloned().unwrap_or_else(|| sf(arg));
+                w(o, &format!(",{}:Box::new(lower_node(&a.{})?)", hir_field, ast_field));
             }
             w(o, "})));\n");
 

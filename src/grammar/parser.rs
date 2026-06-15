@@ -272,8 +272,10 @@ impl GrammarParser {
             let trimmed = line.trim();
             if trimmed.is_empty() { continue; }
             if let Some((pat_str, rep_str)) = trimmed.split_once("→") {
-                let pattern = self.parse_transform_pattern(pat_str.trim())?;
-                let replacement = self.parse_transform_replacement(rep_str.trim())?;
+                let pat = pat_str.trim().trim_end_matches(';');
+                let pattern = self.parse_transform_pattern(pat)?;
+                let rep = rep_str.trim().trim_end_matches(';');
+                let replacement = self.parse_transform_replacement(rep)?;
                 rules.push(TransformRule { pattern, replacement });
             }
         }
