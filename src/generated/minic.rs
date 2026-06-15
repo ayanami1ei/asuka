@@ -6,7 +6,7 @@ pub struct Span{pub sl:u32,pub sc:u32,pub el:u32,pub ec:u32}
 impl Span{pub fn d()->Self{Self{sl:0,sc:0,el:0,ec:0}}pub fn mg(&self,o:&Span)->Self{Self{sl:self.sl,sc:self.sc,el:o.el,ec:o.ec}}}
 
 #[derive(Clone,PartialEq,Debug)]
-pub enum TK{Ident,IntLit,StrLit,KINT,KCHAR,KVOID,If,El,Wh,Fr,Ret,Br,Co,St,KSIZEOF,KTYPEDEF,KCONST,KSTATIC,Ex,KUNSIGNED,KLONG,KSHORT,En,KSWITCH,KCASE,KDEFAULT,KDO,Plus,Ar,RP,O_2626,Bg,LP,O_7c7c,Slash,Ne,Gt,Colon,S,EqEq,Dt,Pct,RB,Lt,C,Q,RBK,Ge,LBK,Minus,Le,And,Star,Eq,O_7e,LB,EOF}
+pub enum TK{Ident,IntLit,StrLit,KINT,KCHAR,KVOID,If,El,Wh,Fr,Ret,Br,Co,St,KSIZEOF,KTYPEDEF,KCONST,KSTATIC,Ex,KUNSIGNED,KLONG,KSHORT,En,KSWITCH,KCASE,KDEFAULT,KDO,Lt,LP,Ne,Bg,Le,O_2626,Plus,Ar,Eq,Ge,Dt,Star,Gt,And,RP,RBK,Pct,RB,S,Minus,Q,Colon,C,LBK,EqEq,O_7e,O_7c7c,Slash,LB,EOF}
 
 #[derive(Clone,Debug)]
 pub struct Tok{pub k:TK,pub s:Span,pub v:String}
@@ -77,7 +77,7 @@ pub struct AInt{pub s:Span,pub v:i64}
 pub struct AStringLiteral{pub s:Span,pub v:String}
 
 #[derive(Clone,Debug)]
-pub enum AN{Ident(Box<AIdent>),Int(Box<AInt>),StringLiteral(Box<AStringLiteral>),Program(Box<AProgram>),Stmt(Box<AStmt>),VarDecl(Box<AVarDecl>),FnDecl(Box<AFnDecl>),ParamList(Box<AParamList>),Param(Box<AParam>),Block(Box<ABlock>),IfStmt(Box<AIfStmt>),WhileStmt(Box<AWhileStmt>),ForStmt(Box<AForStmt>),ReturnStmt(Box<AReturnStmt>),BreakStmt(Box<ABreakStmt>),ContinueStmt(Box<AContinueStmt>),ExprStmt(Box<AExprStmt>),Type(Box<AType>),TypeSpec(Box<ATypeSpec>),Expr(Box<AExpr>),AssignExpr(Box<AAssignExpr>),CondExpr(Box<ACondExpr>),LogOrExpr(Box<ALogOrExpr>),LogAndExpr(Box<ALogAndExpr>),CmpExpr(Box<ACmpExpr>),AddExpr(Box<AAddExpr>),MulExpr(Box<AMulExpr>),UnaryExpr(Box<AUnaryExpr>),PostfixExpr(Box<APostfixExpr>),PrimaryExpr(Box<APrimaryExpr>),SizeofExpr(Box<ASizeofExpr>),ExprList(Box<AExprList>),}
+pub enum AN{Ident(Box<AIdent>),Int(Box<AInt>),StringLiteral(Box<AStringLiteral>),Program(Box<AProgram>),Stmt(Box<AStmt>),VarDecl(Box<AVarDecl>),FnDecl(Box<AFnDecl>),ParamList(Box<AParamList>),Param(Box<AParam>),Block(Box<ABlock>),IfStmt(Box<AIfStmt>),WhileStmt(Box<AWhileStmt>),ForStmt(Box<AForStmt>),ReturnStmt(Box<AReturnStmt>),BreakStmt(Box<ABreakStmt>),ContinueStmt(Box<AContinueStmt>),ExprStmt(Box<AExprStmt>),Type(Box<AType>),TypeSpec(Box<ATypeSpec>),Expr(Box<AExpr>),CallExpr(Box<ACallExpr>),ExprList(Box<AExprList>),PrimaryExpr(Box<APrimaryExpr>),SizeofExpr(Box<ASizeofExpr>),}
 
 #[derive(Clone,Debug)]
 pub struct AProgram{pub s:Span,pub stmt:Vec<AN>,}
@@ -110,7 +110,7 @@ pub struct AWhileStmt{pub s:Span,pub expr:Box<AN>,pub stmt:Box<AN>,}
 pub struct AForStmt{pub s:Span,pub expr:Option<Box<AN>>,pub expr_1:Option<Box<AN>>,pub expr_2:Option<Box<AN>>,pub stmt:Box<AN>,}
 
 #[derive(Clone,Debug)]
-pub struct AReturnStmt{pub s:Span,pub expr:Option<Box<AN>>,}
+pub struct AReturnStmt{pub s:Span,pub expr:Box<AN>,}
 
 #[derive(Clone,Debug)]
 pub struct ABreakStmt{pub s:Span,}
@@ -131,40 +131,16 @@ pub struct ATypeSpec{pub s:Span,}
 pub struct AExpr{pub s:Span,}
 
 #[derive(Clone,Debug)]
-pub struct AAssignExpr{pub s:Span,pub unary_expr:Box<AN>,pub expr:Box<AN>,}
+pub struct ACallExpr{pub s:Span,pub ident:Box<AN>,pub expr_list:Option<Box<AN>>,}
 
 #[derive(Clone,Debug)]
-pub struct ACondExpr{pub s:Span,pub log_or_expr:Box<AN>,pub expr:Box<AN>,pub expr_1:Box<AN>,}
-
-#[derive(Clone,Debug)]
-pub struct ALogOrExpr{pub s:Span,pub log_and_expr:Box<AN>,}
-
-#[derive(Clone,Debug)]
-pub struct ALogAndExpr{pub s:Span,pub cmp_expr:Box<AN>,}
-
-#[derive(Clone,Debug)]
-pub struct ACmpExpr{pub s:Span,pub add_expr:Box<AN>,}
-
-#[derive(Clone,Debug)]
-pub struct AAddExpr{pub s:Span,pub mul_expr:Box<AN>,}
-
-#[derive(Clone,Debug)]
-pub struct AMulExpr{pub s:Span,pub unary_expr:Box<AN>,}
-
-#[derive(Clone,Debug)]
-pub struct AUnaryExpr{pub s:Span,pub postfix_expr:Box<AN>,}
-
-#[derive(Clone,Debug)]
-pub struct APostfixExpr{pub s:Span,pub primary_expr:Box<AN>,}
+pub struct AExprList{pub s:Span,pub expr:Box<AN>,}
 
 #[derive(Clone,Debug)]
 pub struct APrimaryExpr{pub s:Span,}
 
 #[derive(Clone,Debug)]
 pub struct ASizeofExpr{pub s:Span,pub typ:Box<AN>,}
-
-#[derive(Clone,Debug)]
-pub struct AExprList{pub s:Span,pub expr:Box<AN>,}
 
 // HIR
 #[derive(Clone,Debug)]
@@ -275,9 +251,9 @@ Ok(AN::ForStmt(Box::new(AForStmt {s:Span::d(),expr:a0.map(|v|Box::new(v)),expr_1
 pub fn preturn_stmt(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
 self.e(TK::Ret)?;
-let a0 = self.pexpr().ok();
+let a0=self.pexpr()?;
 self.e(TK::S)?;
-Ok(AN::ReturnStmt(Box::new(AReturnStmt {s:Span::d(),expr:a0.map(|v|Box::new(v)),})))
+Ok(AN::ReturnStmt(Box::new(AReturnStmt {s:Span::d(),expr:Box::new(a0),})))
 }
 pub fn pbreak_stmt(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
@@ -327,81 +303,27 @@ return Ok(AN::TypeSpec(Box::new(ATypeSpec{s:Span::d()})));
 Err(format!("no alt for TypeSpec at {}",self.tok().s.sl))
 }
 pub fn pexpr(&mut self)->Result<AN,String>{
-if let Ok(v)=self.passign_expr(){return Ok(v)}
-if let Ok(v)=self.pcond_expr(){return Ok(v)}
-if let Ok(v)=self.plog_or_expr(){return Ok(v)}
-if let Ok(v)=self.plog_and_expr(){return Ok(v)}
-if let Ok(v)=self.pcmp_expr(){return Ok(v)}
-if let Ok(v)=self.padd_expr(){return Ok(v)}
-if let Ok(v)=self.pmul_expr(){return Ok(v)}
-if let Ok(v)=self.punary_expr(){return Ok(v)}
-if let Ok(v)=self.ppostfix_expr(){return Ok(v)}
-if let Ok(v)=self.pprimary_expr(){return Ok(v)}
+if matches!(self.tok().k,TK::Ident){return self.pi()}
+if matches!(self.tok().k,TK::IntLit){return self.pn()}
+if let Ok(v)=self.pcall_expr(){return Ok(v)}
 Err(format!("no alt for Expr at {}",self.tok().s.sl))
 }
-pub fn passign_expr(&mut self)->Result<AN,String>{
+pub fn pcall_expr(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
-let a0=self.punary_expr()?;
-self.e(TK::Eq)?;
-let a1=self.pexpr()?;
-Ok(AN::AssignExpr(Box::new(AAssignExpr {s:Span::d(),unary_expr:Box::new(a0),expr:Box::new(a1),})))
+let a0=self.pi()?;
+self.e(TK::LP)?;
+let a1 = self.pexpr_list().ok();
+self.e(TK::RP)?;
+Ok(AN::CallExpr(Box::new(ACallExpr {s:Span::d(),ident:Box::new(a0),expr_list:a1.map(|v|Box::new(v)),})))
 }
-pub fn pcond_expr(&mut self)->Result<AN,String>{
+pub fn pexpr_list(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
-let a0=self.plog_or_expr()?;
-self.e(TK::Q)?;
-let a1=self.pexpr()?;
-self.e(TK::Colon)?;
-let a2=self.pexpr()?;
-Ok(AN::CondExpr(Box::new(ACondExpr {s:Span::d(),log_or_expr:Box::new(a0),expr:Box::new(a1),expr_1:Box::new(a2),})))
-}
-pub fn plog_or_expr(&mut self)->Result<AN,String>{
-let _s=self.tok().s;
-let a0=self.plog_and_expr()?;
-Ok(AN::LogOrExpr(Box::new(ALogOrExpr {s:Span::d(),log_and_expr:Box::new(a0),})))
-}
-pub fn plog_and_expr(&mut self)->Result<AN,String>{
-let _s=self.tok().s;
-let a0=self.pcmp_expr()?;
-Ok(AN::LogAndExpr(Box::new(ALogAndExpr {s:Span::d(),cmp_expr:Box::new(a0),})))
-}
-pub fn pcmp_expr(&mut self)->Result<AN,String>{
-let _s=self.tok().s;
-let a0=self.padd_expr()?;
-Ok(AN::CmpExpr(Box::new(ACmpExpr {s:Span::d(),add_expr:Box::new(a0),})))
-}
-pub fn padd_expr(&mut self)->Result<AN,String>{
-let _s=self.tok().s;
-let a0=self.pmul_expr()?;
-Ok(AN::AddExpr(Box::new(AAddExpr {s:Span::d(),mul_expr:Box::new(a0),})))
-}
-pub fn pmul_expr(&mut self)->Result<AN,String>{
-let _s=self.tok().s;
-let a0=self.punary_expr()?;
-Ok(AN::MulExpr(Box::new(AMulExpr {s:Span::d(),unary_expr:Box::new(a0),})))
-}
-pub fn punary_expr(&mut self)->Result<AN,String>{
-let _s=self.tok().s;
-let a0=self.ppostfix_expr()?;
-Ok(AN::UnaryExpr(Box::new(AUnaryExpr {s:Span::d(),postfix_expr:Box::new(a0),})))
-}
-pub fn ppostfix_expr(&mut self)->Result<AN,String>{
-let _s=self.tok().s;
-let a0=self.pprimary_expr()?;
-Ok(AN::PostfixExpr(Box::new(APostfixExpr {s:Span::d(),primary_expr:Box::new(a0),})))
+let a0=self.pexpr()?;
+Ok(AN::ExprList(Box::new(AExprList {s:Span::d(),expr:Box::new(a0),})))
 }
 pub fn pprimary_expr(&mut self)->Result<AN,String>{
 if matches!(self.tok().k,TK::Ident){return self.pi()}
 if matches!(self.tok().k,TK::IntLit){return self.pn()}
-if matches!(self.tok().k,TK::StrLit){return self.ps()}
-if matches!(self.tok().k,TK::LP){
-let _s=self.tok().s;
-self.e(TK::LP)?;
-let a0=self.pi()?;
-self.e(TK::RP)?;
-return Ok(AN::PrimaryExpr(Box::new(APrimaryExpr{s:Span::d()})));
-}
-if let Ok(v)=self.psizeof_expr(){return Ok(v)}
 Err(format!("no alt for PrimaryExpr at {}",self.tok().s.sl))
 }
 pub fn psizeof_expr(&mut self)->Result<AN,String>{
@@ -411,11 +333,6 @@ self.e(TK::LP)?;
 let a0=self.ptyp()?;
 self.e(TK::RP)?;
 Ok(AN::SizeofExpr(Box::new(ASizeofExpr {s:Span::d(),typ:Box::new(a0),})))
-}
-pub fn pexpr_list(&mut self)->Result<AN,String>{
-let _s=self.tok().s;
-let a0=self.pexpr()?;
-Ok(AN::ExprList(Box::new(AExprList {s:Span::d(),expr:Box::new(a0),})))
 }
 pub fn tok(&self)->&Tok{&self.t[self.p]}
 pub fn adv(&mut self){self.p+=1;}
@@ -445,18 +362,10 @@ fn visit_expr_stmt(&mut self,n:&AExprStmt)->T;
 fn visit_typ(&mut self,n:&AType)->T;
 fn visit_type_spec(&mut self,n:&ATypeSpec)->T;
 fn visit_expr(&mut self,n:&AExpr)->T;
-fn visit_assign_expr(&mut self,n:&AAssignExpr)->T;
-fn visit_cond_expr(&mut self,n:&ACondExpr)->T;
-fn visit_log_or_expr(&mut self,n:&ALogOrExpr)->T;
-fn visit_log_and_expr(&mut self,n:&ALogAndExpr)->T;
-fn visit_cmp_expr(&mut self,n:&ACmpExpr)->T;
-fn visit_add_expr(&mut self,n:&AAddExpr)->T;
-fn visit_mul_expr(&mut self,n:&AMulExpr)->T;
-fn visit_unary_expr(&mut self,n:&AUnaryExpr)->T;
-fn visit_postfix_expr(&mut self,n:&APostfixExpr)->T;
+fn visit_call_expr(&mut self,n:&ACallExpr)->T;
+fn visit_expr_list(&mut self,n:&AExprList)->T;
 fn visit_primary_expr(&mut self,n:&APrimaryExpr)->T;
 fn visit_sizeof_expr(&mut self,n:&ASizeofExpr)->T;
-fn visit_expr_list(&mut self,n:&AExprList)->T;
 }
 
 pub struct AstWalk;
@@ -478,18 +387,10 @@ fn visit_expr_stmt(&mut self,_n:&AExprStmt)->T{T::default()}
 fn visit_typ(&mut self,_n:&AType)->T{T::default()}
 fn visit_type_spec(&mut self,_n:&ATypeSpec)->T{T::default()}
 fn visit_expr(&mut self,_n:&AExpr)->T{T::default()}
-fn visit_assign_expr(&mut self,_n:&AAssignExpr)->T{T::default()}
-fn visit_cond_expr(&mut self,_n:&ACondExpr)->T{T::default()}
-fn visit_log_or_expr(&mut self,_n:&ALogOrExpr)->T{T::default()}
-fn visit_log_and_expr(&mut self,_n:&ALogAndExpr)->T{T::default()}
-fn visit_cmp_expr(&mut self,_n:&ACmpExpr)->T{T::default()}
-fn visit_add_expr(&mut self,_n:&AAddExpr)->T{T::default()}
-fn visit_mul_expr(&mut self,_n:&AMulExpr)->T{T::default()}
-fn visit_unary_expr(&mut self,_n:&AUnaryExpr)->T{T::default()}
-fn visit_postfix_expr(&mut self,_n:&APostfixExpr)->T{T::default()}
+fn visit_call_expr(&mut self,_n:&ACallExpr)->T{T::default()}
+fn visit_expr_list(&mut self,_n:&AExprList)->T{T::default()}
 fn visit_primary_expr(&mut self,_n:&APrimaryExpr)->T{T::default()}
 fn visit_sizeof_expr(&mut self,_n:&ASizeofExpr)->T{T::default()}
-fn visit_expr_list(&mut self,_n:&AExprList)->T{T::default()}
 }
 
 // ── Lowering (Tree Transducer) ──
@@ -499,36 +400,45 @@ match ast{
 AN::Ident(a)=>Ok(HN::Ident(Box::new(HIdent{s:a.s}))),
 AN::Int(a)=>Ok(HN::Int(Box::new(HInt{s:a.s,v:a.v}))),
 AN::StringLiteral(a)=>Ok(HN::StringLiteral(Box::new(HStringLiteral{s:a.s,v:a.v.clone()}))),
-AN::VarDecl(_)=>Err("skip".into()),
-AN::ContinueStmt(_)=>Err("skip".into()),
-AN::LogOrExpr(_)=>Err("skip".into()),
-AN::ParamList(_)=>Err("skip".into()),
-AN::IfStmt(_)=>Err("skip".into()),
-AN::UnaryExpr(_)=>Err("skip".into()),
-AN::PostfixExpr(_)=>Err("skip".into()),
-AN::Stmt(_)=>Err("skip".into()),
-AN::ExprStmt(_)=>Err("skip".into()),
-AN::MulExpr(_)=>Err("skip".into()),
-AN::WhileStmt(_)=>Err("skip".into()),
-AN::CondExpr(_)=>Err("skip".into()),
-AN::Expr(_)=>Err("skip".into()),
-AN::Param(_)=>Err("skip".into()),
-AN::Program(_)=>Err("skip".into()),
-AN::LogAndExpr(_)=>Err("skip".into()),
-AN::AssignExpr(_)=>Err("skip".into()),
-AN::ForStmt(_)=>Err("skip".into()),
-AN::SizeofExpr(_)=>Err("skip".into()),
-AN::FnDecl(_)=>Err("skip".into()),
-AN::ReturnStmt(_)=>Err("skip".into()),
-AN::Type(_)=>Err("skip".into()),
-AN::ExprList(_)=>Err("skip".into()),
-AN::Block(_)=>Err("skip".into()),
-AN::PrimaryExpr(_)=>Err("skip".into()),
-AN::BreakStmt(_)=>Err("skip".into()),
-AN::AddExpr(_)=>Err("skip".into()),
-AN::CmpExpr(_)=>Err("skip".into()),
 AN::TypeSpec(_)=>Err("skip".into()),
+AN::CallExpr(_)=>Err("skip".into()),
+AN::Block(_)=>Err("skip".into()),
+AN::VarDecl(_)=>Err("skip".into()),
+AN::IfStmt(_)=>Err("skip".into()),
+AN::Stmt(_)=>Err("skip".into()),
+AN::ReturnStmt(_)=>Err("skip".into()),
+AN::ParamList(_)=>Err("skip".into()),
+AN::Program(_)=>Err("skip".into()),
+AN::Param(_)=>Err("skip".into()),
+AN::FnDecl(_)=>Err("skip".into()),
+AN::Expr(_)=>Err("skip".into()),
+AN::WhileStmt(_)=>Err("skip".into()),
+AN::ExprStmt(_)=>Err("skip".into()),
+AN::BreakStmt(_)=>Err("skip".into()),
+AN::ContinueStmt(_)=>Err("skip".into()),
+AN::ForStmt(_)=>Err("skip".into()),
+AN::ExprList(_)=>Err("skip".into()),
+AN::PrimaryExpr(_)=>Err("skip".into()),
+AN::SizeofExpr(_)=>Err("skip".into()),
+AN::Type(_)=>Err("skip".into()),
 _=>Err("unknown node".into())
+}
+}
+
+// ── Emit ──
+
+pub fn emit_node(n:&HN)->Result<String,String>{
+match n{
+HN::Ident(_)=>Ok(String::new()),
+HN::Int(a)=>Ok(format!("{}",a.v)),
+HN::StringLiteral(a)=>Ok(a.v.clone()),
+HN::HirInt(a)=>{
+Ok(format!("%hir_int = add i64 0, %v"))
+}
+HN::HirIdent(a)=>{
+Ok(format!("%n"))
+}
+_=>Err("no emit".into())
 }
 }
 

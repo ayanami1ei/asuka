@@ -59,6 +59,27 @@ fn test_parse_factorial() {
 }
 
 #[test]
+fn test_lower_int() {
+    let mut lex = Lex::new("42");
+    let mut p = P::new(lex.tkz());
+    let ast = p.pexpr().unwrap();
+    let hir = lower_node(&ast).unwrap();
+    let llvm = emit_node(&hir).unwrap();
+    assert_eq!(llvm, "42", "emit: {}", llvm);
+}
+
+#[test]
+fn test_lower_ident() {
+    let mut lex = Lex::new("x");
+    let mut p = P::new(lex.tkz());
+    let ast = p.pexpr().unwrap();
+    let hir = lower_node(&ast).unwrap();
+    // Ident → HIdent (built-in), emit returns empty string
+    let llvm = emit_node(&hir).unwrap();
+    assert_eq!(llvm, "", "emit: {}", llvm);
+}
+
+#[test]
 fn test_parse_nested_block() {
     let src = "int main() { { { return 0; } } }";
     let ast = lex_and_parse(src);

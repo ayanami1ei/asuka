@@ -45,7 +45,7 @@
     IfStmt      = "if" "(" Expr ")" Stmt ("else" Stmt)?;
     WhileStmt   = "while" "(" Expr ")" Stmt;
     ForStmt     = "for" "(" Expr? ";" Expr? ";" Expr? ")" Stmt;
-    ReturnStmt  = "return" Expr? ";";
+    ReturnStmt  = "return" Expr ";";
     BreakStmt   = "break" ";";
     ContinueStmt= "continue" ";";
     ExprStmt    = Expr ";";
@@ -53,21 +53,12 @@
     Type        = TypeSpec ("*")*;
     TypeSpec    = "int" | "char" | "void" | "struct" Ident;
 
-    Expr        = AssignExpr | CondExpr | LogOrExpr | LogAndExpr | CmpExpr
-                 | AddExpr | MulExpr | UnaryExpr | PostfixExpr | PrimaryExpr;
-    AssignExpr  = UnaryExpr "=" Expr;
-    CondExpr    = LogOrExpr "?" Expr ":" Expr;
-    LogOrExpr   = LogAndExpr ("||" LogAndExpr)*;
-    LogAndExpr  = CmpExpr ("&&" CmpExpr)*;
-    CmpExpr     = AddExpr (("<" | ">" | "<=" | ">=" | "==" | "!=") AddExpr)*;
-    AddExpr     = MulExpr (("+" | "-") MulExpr)*;
-    MulExpr     = UnaryExpr (("*" | "/" | "%") UnaryExpr)*;
-    UnaryExpr   = ("-" | "!" | "&" | "*")? PostfixExpr;
-    PostfixExpr = PrimaryExpr ("[" Expr "]" | "." Ident | "->" Ident | "(" ExprList? ")")*;
-
-    PrimaryExpr = Ident | IntLiteral | StringLiteral | "(" Expr ")" | SizeofExpr;
-    SizeofExpr  = "sizeof" "(" Type ")";
+    Expr        = Ident | IntLiteral | CallExpr;
+    CallExpr    = Ident "(" ExprList? ")";
     ExprList    = Expr ("," Expr)*;
+    PrimaryExpr = Ident | IntLiteral;
+    SizeofExpr  = "sizeof" "(" Type ")";
+
 }
 
 @hir {
@@ -75,6 +66,18 @@
     HirIdent = Ident;
 }
 
+@transform {
+    IntLiteral(v) → HirInt(v);
+    Ident(name) → HirIdent(name);
+}
+
+@emit {
+    HirInt(v) → "%hir_int = add i64 0, %v"
+    HirIdent(n) → "%n"
+}
+
 @pipeline {
     parse → lex, parse_ast;
+    hir   → lower;
+    emit  → codegen;
 }
