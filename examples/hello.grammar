@@ -23,6 +23,11 @@
     HirAdd     = BinaryExpr;
 }
 
+@transform {
+    BinaryExpr(lhs, rhs) → HirAdd(lhs, rhs);
+    ReturnStmt(expr) → HirReturn(expr);
+}
+
 @pipeline {
     parse → lex, parse_ast;
     hir   → lower;

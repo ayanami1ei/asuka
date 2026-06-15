@@ -373,35 +373,83 @@ fn visitor(gf: &GrammarFile, o: &mut String) {
 
 fn lowering(gf: &GrammarFile, o: &mut String) {
     if gf.hir.is_empty() { return; }
-    w(o, "// ── Lowering ──\n\n");
+    w(o, "// ── Lowering (Tree Transducer) ──\n\n");
 
-    // Generate lowering harness: for each @hir rule mapping from AST, generate transform code
-    w(o, "pub fn lower_program(ast:&AN)->Result<HN,String>{\n");
+    // Generate the main lowering function using transform rules
+    w(o, "pub fn lower_node(ast:&AN)->Result<HN,String>{\n");
     w(o, "match ast{\n");
 
-    // For each AST rule, check if there's a matching HIR rule
-    // Currently just generates simple direct mapping stubs
-    for r in &gf.hir {
-        let hir_name = &r.name.as_str();
-        let hir_str: &str = hir_name;
-
-        // Extract AST rule name from the HIR production (the referenced non-terminal)
-        let ast_name: &str = get_hir_source(&r.production, &gf.ast);
-        let _hir_snake = sf(hir_str);
-
-        if !ast_name.is_empty() && gf.ast.iter().any(|a| a.name.as_str() == ast_name) {
-            w(o, "AN::"); w(o, ast_name); w(o, "(a)=>{\n");
-            w(o, "// TODO: lower "); w(o, ast_name); w(o, " → "); w(o, hir_name); w(o, "\n");
-            w(o, "unimplemented!()\n");
-            w(o, "}\n");
-        }
-    }
-
-    // Built-in types
+    // Built-in types first
     w(o, "AN::Ident(a)=>Ok(HN::Ident(Box::new(HIdent{s:a.s}))),\n");
     w(o, "AN::Int(a)=>Ok(HN::Int(Box::new(HInt{s:a.s,v:a.v}))),\n");
 
-    w(o, "_=>Err(\"no lowering defined\".into())\n");
+    // Collect all unique AST node names referenced in any way
+    let mut ast_nodes: HashSet<String> = HashSet::new();
+    for r in &gf.ast { ast_nodes.insert(r.name.as_str().to_string()); }
+
+    // For each AST node type, generate the lowering logic
+    for ast_name in &ast_nodes {
+        let has_transform = gf.transform.iter().any(|t| t.pattern.node_name == *ast_name);
+        let has_hir = gf.hir.iter().any(|h| {
+            get_hir_source(&h.production, &gf.ast) == *ast_name
+        });
+
+        if !has_transform && !has_hir { continue; }
+
+        w(o, "AN::"); w(o, ast_name); w(o, "(a)=>{\n");
+
+        // Try transform rules first
+        let mut rule_idx = 0u32;
+        for tr in &gf.transform {
+            if tr.pattern.node_name != *ast_name { continue; }
+            let hir_name = &tr.replacement.node_name;
+
+            // Generate condition checks
+            for (field, expected_val) in &tr.pattern.conditions {
+                // The field is stored in the AST struct — we need to check it
+                let fname = sf(field);
+                w(o, &format!("if a.{} != \"{}\" {{ ", fname, expected_val));
+            }
+
+            // Build the HIR node with only span (child fields use stub)
+            w(o, "return Ok(HN::"); w(o, hir_name); w(o, "(Box::new(H"); w(o, hir_name); w(o, "{s:a.s");
+            // Add stub fields for all struct members (skip s which is already set)
+            let hir_str2: &str = hir_name;
+            let hirs: Vec<&Rule> = gf.hir.iter().filter(|r| r.name.as_str() == hir_str2).collect();
+            if let Some(hir_rule) = hirs.first() {
+                let mut seen = HashSet::new();
+                let mut dup = 0u32;
+                for sym in get_syms(&hir_rule.production) {
+                    if let ProductionSymbolKind::NonTerm(n) = &sym.kind {
+                        let ns = sf(&n.as_str());
+                        let fname = if seen.contains(&ns) { dup += 1; format!("{}_{}", ns, dup) } else { seen.insert(ns.clone()); ns };
+                        w(o, &format!(",{}:todo!()", fname));
+                    }
+                }
+            }
+            w(o, "})));\n");
+
+            // Close the condition if checks
+            for _ in &tr.pattern.conditions {
+                w(o, "}\n");
+            }
+
+            rule_idx += 1;
+        }
+
+        // Fallback — only if no transform was applied
+        if rule_idx == 0 {
+            if has_hir {
+                w(o, &format!("Err(format!(\"no transform for {}\"))\n", ast_name));
+            } else {
+                w(o, "Err(\"no matching transform\".into())\n");
+            }
+        }
+
+        w(o, "}\n");
+    }
+
+    w(o, "_=>Err(\"unknown node\".into())\n");
     w(o, "}\n}\n\n");
 }
 

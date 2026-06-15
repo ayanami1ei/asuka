@@ -89,8 +89,23 @@ pub enum Quantifier {
 
 #[derive(Debug, Clone)]
 pub struct TransformRule {
-    pub pattern: String,
-    pub replacement: String,
+    pub pattern: TransformPattern,
+    pub replacement: TransformReplacement,
+}
+
+/// Match pattern: e.g. BinaryExpr(op:"+", lhs, rhs)
+#[derive(Debug, Clone)]
+pub struct TransformPattern {
+    pub node_name: String,
+    pub conditions: Vec<(String, String)>, // (field_name, expected_value)
+    pub captures: Vec<String>,             // variable names for child values
+}
+
+/// Replacement: e.g. HirAdd(lhs, rhs)
+#[derive(Debug, Clone)]
+pub struct TransformReplacement {
+    pub node_name: String,
+    pub args: Vec<String>,                 // variable names or literals
 }
 
 #[derive(Debug, Clone)]

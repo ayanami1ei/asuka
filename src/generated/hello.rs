@@ -158,25 +158,22 @@ fn visit_expr(&mut self,_n:&AExpr)->T{T::default()}
 fn visit_binary_expr(&mut self,_n:&ABinaryExpr)->T{T::default()}
 }
 
-// ── Lowering ──
+// ── Lowering (Tree Transducer) ──
 
-pub fn lower_program(ast:&AN)->Result<HN,String>{
+pub fn lower_node(ast:&AN)->Result<HN,String>{
 match ast{
-AN::FnDecl(a)=>{
-// TODO: lower FnDecl → HirFnDecl
-unimplemented!()
-}
-AN::ReturnStmt(a)=>{
-// TODO: lower ReturnStmt → HirReturn
-unimplemented!()
-}
-AN::BinaryExpr(a)=>{
-// TODO: lower BinaryExpr → HirAdd
-unimplemented!()
-}
 AN::Ident(a)=>Ok(HN::Ident(Box::new(HIdent{s:a.s}))),
 AN::Int(a)=>Ok(HN::Int(Box::new(HInt{s:a.s,v:a.v}))),
-_=>Err("no lowering defined".into())
+AN::ReturnStmt(a)=>{
+return Ok(HN::HirReturn(Box::new(HHirReturn{s:a.s,return_stmt:todo!()})));
+}
+AN::FnDecl(a)=>{
+Err(format!("no transform for FnDecl"))
+}
+AN::BinaryExpr(a)=>{
+return Ok(HN::HirAdd(Box::new(HHirAdd{s:a.s,binary_expr:todo!()})));
+}
+_=>Err("unknown node".into())
 }
 }
 

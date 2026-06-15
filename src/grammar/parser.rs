@@ -269,14 +269,44 @@ impl GrammarParser {
             self.skip_ws();
             if self.peek() == Some('}') { self.pos += 1; break; }
             let line = self.parse_line()?;
-            if let Some((pattern, replacement)) = line.split_once("→") {
-                rules.push(TransformRule {
-                    pattern: pattern.trim().to_string(),
-                    replacement: replacement.trim().to_string(),
-                });
+            let trimmed = line.trim();
+            if trimmed.is_empty() { continue; }
+            if let Some((pat_str, rep_str)) = trimmed.split_once("→") {
+                let pattern = self.parse_transform_pattern(pat_str.trim())?;
+                let replacement = self.parse_transform_replacement(rep_str.trim())?;
+                rules.push(TransformRule { pattern, replacement });
             }
         }
         Ok(rules)
+    }
+
+    fn parse_transform_pattern(&mut self, s: &str) -> Result<TransformPattern, String> {
+        // Format: NodeName(field1:"val", capture1, field2:"val", capture2)
+        let parts = split_pattern(s);
+        if parts.is_empty() { return Err("empty pattern".into()); }
+        let node_name = parts[0].to_string();
+        let mut conditions = Vec::new();
+        let mut captures = Vec::new();
+        for arg in &parts[1..] {
+            if let Some((k, v)) = arg.split_once(':') {
+                let val = v.trim().trim_matches('"');
+                conditions.push((k.trim().to_string(), val.to_string()));
+            } else {
+                captures.push(arg.trim().to_string());
+            }
+        }
+        Ok(TransformPattern { node_name, conditions, captures })
+    }
+
+    fn parse_transform_replacement(&mut self, s: &str) -> Result<TransformReplacement, String> {
+        let parts = split_pattern(s);
+        if parts.is_empty() { return Err("empty replacement".into()); }
+        let node_name = parts[0].to_string();
+        let args: Vec<String> = parts[1..].iter().map(|a| {
+            let t = a.trim();
+            if t.starts_with('"') { t.trim_matches('"').to_string() } else { t.to_string() }
+        }).collect();
+        Ok(TransformReplacement { node_name, args })
     }
 
     // ─── Emit ───
@@ -427,4 +457,33 @@ impl GrammarParser {
     fn line(&self) -> usize {
         self.chars[..self.pos].iter().filter(|&&c| c == '\n').count() + 1
     }
+}
+
+/// Split "NodeName(a:\"v\", b, c)" into ["NodeName", "a:\"v\"", "b", "c"]
+fn split_pattern(s: &str) -> Vec<String> {
+    let s = s.trim();
+    let paren = s.find('(').unwrap_or(s.len());
+    let name = s[..paren].to_string();
+    let mut parts = vec![name];
+    if paren < s.len() && s.ends_with(')') {
+        let inner = s[paren+1..s.len()-1].trim();
+        if !inner.is_empty() {
+            let mut depth = 0usize;
+            let mut start = 0usize;
+            for (i, c) in inner.char_indices() {
+                match c {
+                    '(' | '{' | '[' => depth += 1,
+                    ')' | '}' | ']' => depth -= 1,
+                    ',' if depth == 0 => {
+                        parts.push(inner[start..i].trim().to_string());
+                        start = i + 1;
+                    }
+                    _ => {}
+                }
+            }
+            let last = inner[start..].trim();
+            if !last.is_empty() { parts.push(last.to_string()); }
+        }
+    }
+    parts
 }
