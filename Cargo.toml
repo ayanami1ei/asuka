@@ -15,4 +15,4 @@ path = "src/lib.rs"
 serde = { version = "1", features = ["derive"] }
 
 [build-dependencies]
-serde = { version = "1", features = ["derive"] }
+# asuka-codegen will be added as workspace crate later
