@@ -80,17 +80,19 @@ pub struct HHirAdd{pub s:Span,pub binary_expr:Box<HN>,}
 // Parser
 pub struct P{pub t:Vec<Tok>,pub p:usize}
 impl P{pub fn new(t:Vec<Tok>)->Self{Self{t,p:0}}
+fn op_prec(&self,k:&TK)->u32{match k{
+TK::Plus => 5,
+TK::Star => 6,
+_=>0}}
 pub fn pprogram(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
 let a0=self.pstmt()?;
 Ok(AN::Program(Box::new(AProgram {s:Span::d(),stmt:Box::new(a0),})))
 }
 pub fn pstmt(&mut self)->Result<AN,String>{
-// alternatives
-let saved=self.p;
-// try alternative 0self.p=saved;
-// try alternative 1// TODO: proper alternatives
-Err("alt".to_string())
+if let Ok(v)=self.pfn_decl(){return Ok(v)}
+if let Ok(v)=self.preturn_stmt(){return Ok(v)}
+Err(format!("no alt for Stmt at {}",self.tok().s.sl))
 }
 pub fn pfn_decl(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
@@ -111,12 +113,10 @@ self.e(TK::S)?;
 Ok(AN::ReturnStmt(Box::new(AReturnStmt {s:Span::d(),expr:Box::new(a0),})))
 }
 pub fn pexpr(&mut self)->Result<AN,String>{
-// alternatives
-let saved=self.p;
-// try alternative 0self.p=saved;
-// try alternative 1self.p=saved;
-// try alternative 2// TODO: proper alternatives
-Err("alt".to_string())
+if matches!(self.tok().k,TK::Ident){return self.pi()}
+if matches!(self.tok().k,TK::IntLit){return self.pn()}
+if let Ok(v)=self.pbinary_expr(){return Ok(v)}
+Err(format!("no alt for Expr at {}",self.tok().s.sl))
 }
 pub fn pbinary_expr(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
@@ -127,7 +127,7 @@ Ok(AN::BinaryExpr(Box::new(ABinaryExpr {s:Span::d(),expr:Box::new(a0),operator:B
 }
 pub fn tok(&self)->&Tok{&self.t[self.p]}
 pub fn adv(&mut self){self.p+=1;}
-pub fn e(&mut self,k:TK)->Result<(),String>{if self.tok().k==k{self.adv();Ok(())}else{Err(format!("expected {:?}",k))}}
+pub fn e(&mut self,k:TK)->Result<(),String>{if self.tok().k==k{self.adv();Ok(())}else{Err(format!("expected {:?} at {}",k,self.tok().s.sl))}}
 pub fn pi(&mut self)->Result<AN,String>{let t=self.tok().clone();if t.k!=TK::Ident{return Err("id".into());}self.adv();Ok(AN::Ident(Box::new(AIdent{s:t.s,v:t.v})))}
 pub fn pn(&mut self)->Result<AN,String>{let t=self.tok().clone();if t.k!=TK::IntLit{return Err("int".into());}self.adv();let n:i64=t.v.parse().map_err(|_|"bad")?;Ok(AN::Int(Box::new(AInt{s:t.s,v:n})))}
 }
