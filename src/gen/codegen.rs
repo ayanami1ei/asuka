@@ -74,8 +74,11 @@ fn ast(gf: &GrammarFile, o: &mut String) {
         for s in get_syms(&r.production) {
             if let ProductionSymbolKind::NonTerm(n2) = &s.kind {
                 let fname = sf(&n2.as_str());
-                let unique = if seen.contains(&fname) { dup += 1; format!("{}_{}", fname, dup) } else { seen.insert(fname.clone()); fname };
-                w(o, &format!("pub {}:Box<AN>,", unique));
+                let field = if seen.contains(&fname) { dup += 1; format!("{}_{}", fname, dup) } else { seen.insert(fname.clone()); fname.clone() };
+                match s.quantifier {
+                    Quantifier::Repeat => { w(o, &format!("pub {}:Vec<AN>,", field)); }
+                    _ => { w(o, &format!("pub {}:Box<AN>,", field)); }
+                }
             }
         }
         w(o, "}\n\n");
@@ -102,8 +105,11 @@ fn hir(gf: &GrammarFile, o: &mut String) {
         for s in get_syms(&r.production) {
             if let ProductionSymbolKind::NonTerm(n2) = &s.kind {
                 let fname = sf(&n2.as_str());
-                let unique = if seen.contains(&fname) { dup += 1; format!("{}_{}", fname, dup) } else { seen.insert(fname.clone()); fname };
-                w(o, &format!("pub {}:Box<HN>,", unique));
+                let field = if seen.contains(&fname) { dup += 1; format!("{}_{}", fname, dup) } else { seen.insert(fname.clone()); fname.clone() };
+                match s.quantifier {
+                    Quantifier::Repeat => { w(o, &format!("pub {}:Vec<HN>,", field)); }
+                    _ => { w(o, &format!("pub {}:Box<HN>,", field)); }
+                }
             }
         }
         w(o, "}\n\n");
@@ -231,37 +237,72 @@ fn find_first_non_op<'a>(prod: &'a Production, rules: &HashSet<String>) -> &'a s
 fn gen_parse(prod: &Production, rule_name: &str, rules: &HashSet<String>, o: &mut String, indent: &str) {
     match prod {
         Production::Seq(syms) => {
-            let mut captures: Vec<(String, String)> = Vec::new();
+            // (field_name, var_name, is_vec)
+            let mut captures: Vec<(String, String, bool)> = Vec::new();
             let mut seen = HashSet::new();
             let mut dup = 0u32;
             let mut vi = 0u32;
 
             w(o, "let _s=self.tok().s;\n");
             for s in syms {
-                match &s.kind {
-                    ProductionSymbolKind::Literal(lit) => {
-                        w(o, &format!("self.e(TK::{})?;\n", ltok(lit)));
-                    }
-                    ProductionSymbolKind::NonTerm(n2) => {
-                        let ns = sf(&n2.as_str());
-                        if ns == "op" || ns == "list" { w(o, "//TODO\n"); continue; }
-                        let var = format!("a{}", vi); vi += 1;
-                        if rules.contains(&ns) {
-                            w(o, &format!("let {}=self.p{}()?;\n", var, ns));
-                        } else {
-                            // Built-in: parse_ident, etc.
-                            let m = builtin_parse(&ns);
-                            w(o, &format!("let {}=self.{}()?;\n", var, m));
-                        }
-                        let fname = sf(&n2.as_str());
+                match s.quantifier {
+                    Quantifier::Repeat => {
+                        // Generate while loop for *
+                        let ns = match &s.kind {
+                            ProductionSymbolKind::NonTerm(n) => sf(&n.as_str()),
+                            _ => continue,
+                        };
+                        let var = format!("{}s", ns);
+                        w(o, &format!("let mut {}:Vec<AN>=Vec::new();\n", var));
+                        w(o, "while let Ok(v)=self.p"); w(o, &ns); w(o, "(){"); w(o, &var); w(o, ".push(v)}\n");
+                        let fname = sf(&ns);
                         let field = if seen.contains(&fname) { dup += 1; format!("{}_{}", fname, dup) } else { seen.insert(fname.clone()); fname };
-                        captures.push((field, var));
+                        captures.push((field, var, true));
                     }
-                    _ => {}
+                    Quantifier::Optional => {
+                        // Generate if for ?
+                        let ns = match &s.kind {
+                            ProductionSymbolKind::NonTerm(n) => sf(&n.as_str()),
+                            _ => continue,
+                        };
+                        w(o, &format!("let {}=self.p{}().ok();\n", format!("a{}", vi), ns));
+                        let var = format!("a{}", vi); vi += 1;
+                        let fname = sf(&ns);
+                        let field = if seen.contains(&fname) { dup += 1; format!("{}_{}", fname, dup) } else { seen.insert(fname.clone()); fname };
+                        captures.push((field, var, false));
+                    }
+                    Quantifier::Exactly => {
+                        match &s.kind {
+                            ProductionSymbolKind::Literal(lit) => {
+                                w(o, &format!("self.e(TK::{})?;\n", ltok(lit)));
+                            }
+                            ProductionSymbolKind::NonTerm(n2) => {
+                                let ns = sf(&n2.as_str());
+                                if ns == "op" || ns == "list" { w(o, "//TODO\n"); continue; }
+                                let var = format!("a{}", vi); vi += 1;
+                                if rules.contains(&ns) {
+                                    w(o, &format!("let {}=self.p{}()?;\n", var, ns));
+                                } else {
+                                    let m = builtin_parse(&ns);
+                                    w(o, &format!("let {}=self.{}()?;\n", var, m));
+                                }
+                                let fname = sf(&n2.as_str());
+                                let field = if seen.contains(&fname) { dup += 1; format!("{}_{}", fname, dup) } else { seen.insert(fname.clone()); fname };
+                                captures.push((field, var, false));
+                            }
+                            _ => {}
+                        }
+                    }
                 }
             }
             w(o, &format!("Ok(AN::{}(Box::new(A{} {{s:Span::d(),", rule_name, rule_name));
-            for (field, var) in &captures { w(o, &format!("{}:Box::new({}),", field, var)); }
+            for (field, var, is_vec) in &captures {
+                if *is_vec {
+                    w(o, &format!("{}:{},", field, var));
+                } else {
+                    w(o, &format!("{}:Box::new({}),", field, var));
+                }
+            }
             w(o, "})))\n");
         }
         Production::Alt(alts) => {
@@ -394,7 +435,12 @@ fn lowering(gf: &GrammarFile, o: &mut String) {
             get_hir_source(&h.production, &gf.ast) == *ast_name
         });
 
-        if !has_transform && !has_hir { continue; }
+        // Always generate a case for every AST node (auto-lower children)
+        if !has_transform && !has_hir {
+            // Auto-lower: skip this node (no HIR equivalent)
+            w(o, "AN::"); w(o, ast_name); w(o, "(_)=>Err(\"skip\".into()),\n");
+            continue;
+        }
 
         w(o, "AN::"); w(o, ast_name); w(o, "(a)=>{\n");
 

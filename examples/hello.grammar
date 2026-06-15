@@ -24,8 +24,9 @@
 }
 
 @transform {
-    BinaryExpr(lhs, rhs) → HirAdd(lhs, rhs);
+    FnDecl(ident, stmt) → HirFnDecl(ident, stmt);
     ReturnStmt(expr) → HirReturn(expr);
+    BinaryExpr(lhs, rhs) → HirAdd(lhs, rhs);
 }
 
 @pipeline {

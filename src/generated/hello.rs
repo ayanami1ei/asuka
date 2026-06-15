@@ -44,13 +44,13 @@ pub struct AInt{pub s:Span,pub v:i64}
 pub enum AN{Ident(Box<AIdent>),Int(Box<AInt>),Program(Box<AProgram>),Stmt(Box<AStmt>),FnDecl(Box<AFnDecl>),ReturnStmt(Box<AReturnStmt>),Expr(Box<AExpr>),BinaryExpr(Box<ABinaryExpr>),}
 
 #[derive(Clone,Debug)]
-pub struct AProgram{pub s:Span,pub stmt:Box<AN>,}
+pub struct AProgram{pub s:Span,pub stmt:Vec<AN>,}
 
 #[derive(Clone,Debug)]
 pub struct AStmt{pub s:Span,}
 
 #[derive(Clone,Debug)]
-pub struct AFnDecl{pub s:Span,pub ident:Box<AN>,pub stmt:Box<AN>,}
+pub struct AFnDecl{pub s:Span,pub ident:Box<AN>,pub stmt:Vec<AN>,}
 
 #[derive(Clone,Debug)]
 pub struct AReturnStmt{pub s:Span,pub expr:Box<AN>,}
@@ -91,8 +91,9 @@ TK::Star => 6,
 _=>0}}
 pub fn pprogram(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
-let a0=self.pstmt()?;
-Ok(AN::Program(Box::new(AProgram {s:Span::d(),stmt:Box::new(a0),})))
+let mut stmts:Vec<AN>=Vec::new();
+while let Ok(v)=self.pstmt(){stmts.push(v)}
+Ok(AN::Program(Box::new(AProgram {s:Span::d(),stmt:stmts,})))
 }
 pub fn pstmt(&mut self)->Result<AN,String>{
 if let Ok(v)=self.pfn_decl(){return Ok(v)}
@@ -106,9 +107,10 @@ let a0=self.pi()?;
 self.e(TK::LP)?;
 self.e(TK::RP)?;
 self.e(TK::LB)?;
-let a1=self.pstmt()?;
+let mut stmts:Vec<AN>=Vec::new();
+while let Ok(v)=self.pstmt(){stmts.push(v)}
 self.e(TK::RB)?;
-Ok(AN::FnDecl(Box::new(AFnDecl {s:Span::d(),ident:Box::new(a0),stmt:Box::new(a1),})))
+Ok(AN::FnDecl(Box::new(AFnDecl {s:Span::d(),ident:Box::new(a0),stmt:stmts,})))
 }
 pub fn preturn_stmt(&mut self)->Result<AN,String>{
 let _s=self.tok().s;
@@ -164,15 +166,18 @@ pub fn lower_node(ast:&AN)->Result<HN,String>{
 match ast{
 AN::Ident(a)=>Ok(HN::Ident(Box::new(HIdent{s:a.s}))),
 AN::Int(a)=>Ok(HN::Int(Box::new(HInt{s:a.s,v:a.v}))),
-AN::ReturnStmt(a)=>{
-return Ok(HN::HirReturn(Box::new(HHirReturn{s:a.s,return_stmt:todo!()})));
-}
 AN::FnDecl(a)=>{
-Err(format!("no transform for FnDecl"))
+return Ok(HN::HirFnDecl(Box::new(HHirFnDecl{s:a.s,fn_decl:todo!()})));
 }
+AN::Expr(_)=>Err("skip".into()),
 AN::BinaryExpr(a)=>{
 return Ok(HN::HirAdd(Box::new(HHirAdd{s:a.s,binary_expr:todo!()})));
 }
+AN::ReturnStmt(a)=>{
+return Ok(HN::HirReturn(Box::new(HHirReturn{s:a.s,return_stmt:todo!()})));
+}
+AN::Program(_)=>Err("skip".into()),
+AN::Stmt(_)=>Err("skip".into()),
 _=>Err("unknown node".into())
 }
 }
