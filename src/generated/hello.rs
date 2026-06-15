@@ -169,16 +169,35 @@ AN::Int(a)=>Ok(HN::Int(Box::new(HInt{s:a.s,v:a.v}))),
 AN::ReturnStmt(a)=>{
 return Ok(HN::HirReturn(Box::new(HHirReturn{s:a.s,return_stmt:Box::new(lower_node(&a.expr)?)})));
 }
-AN::Expr(_)=>Err("skip".into()),
-AN::BinaryExpr(a)=>{
-return Ok(HN::HirAdd(Box::new(HHirAdd{s:a.s,binary_expr:Box::new(lower_node(&a.expr)?)})));
-}
 AN::Stmt(_)=>Err("skip".into()),
-AN::Program(_)=>Err("skip".into()),
+AN::Expr(_)=>Err("skip".into()),
 AN::FnDecl(a)=>{
 return Ok(HN::HirFnDecl(Box::new(HHirFnDecl{s:a.s,fn_decl:Box::new(lower_node(&a.ident)?)})));
 }
+AN::BinaryExpr(a)=>{
+return Ok(HN::HirAdd(Box::new(HHirAdd{s:a.s,binary_expr:Box::new(lower_node(&a.expr)?)})));
+}
+AN::Program(_)=>Err("skip".into()),
 _=>Err("unknown node".into())
+}
+}
+
+// ── Emit ──
+
+pub fn emit_node(n:&HN)->Result<String,String>{
+match n{
+HN::Ident(_)=>Ok(String::new()),
+HN::Int(a)=>Ok(format!("{}",a.v)),
+HN::HirInt(a)=>{
+Ok(format!("%hir_int = add i64 0, %v"))
+}
+HN::HirReturn(a)=>{
+Ok(format!("ret i64 %e"))
+}
+HN::HirFnDecl(a)=>{
+Ok(format!("define i64 @main() {{\\\n  %f\\\n}}"))
+}
+_=>Err("no emit".into())
 }
 }
 

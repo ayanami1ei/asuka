@@ -59,6 +59,17 @@ fn test_full_pipeline() {
 }
 
 #[test]
+fn test_emit_return() {
+    let result = run_pipeline("return 42;");
+    assert!(result.is_ok(), "pipeline failed: {:?}", result);
+    let hir = result.unwrap();
+    let llvm = emit_node(&hir);
+    assert!(llvm.is_ok(), "emit failed: {:?}", llvm);
+    let ir = llvm.unwrap();
+    assert!(ir.contains("ret i64"), "expected ret, got: {}", ir);
+}
+
+#[test]
 fn test_pipeline_fn() {
     // Parse 'fn main() { return 42; }' as a function decl
     let mut lex = Lex::new("fn main() { return 42; }");

@@ -11,6 +11,7 @@ pub fn generate(gf: &GrammarFile) -> String {
     parser(gf, &mut o);
     visitor(gf, &mut o);
     lowering(gf, &mut o);
+    emit(gf, &mut o);
     o
 }
 
@@ -530,6 +531,40 @@ fn lowering(gf: &GrammarFile, o: &mut String) {
     w(o, "}\n}\n\n");
 }
 
+
+// ── Emit (HIR → LLVM IR) ──
+
+fn emit(gf: &GrammarFile, o: &mut String) {
+    if gf.emit.is_empty() { return; }
+    w(o, "// ── Emit ──\n\n");
+    w(o, "pub fn emit_node(n:&HN)->Result<String,String>{\n");
+    w(o, "match n{\n");
+    w(o, "HN::Ident(_)=>Ok(String::new()),\n");
+    w(o, "HN::Int(a)=>Ok(format!(\"{}\",a.v)),\n");
+    for er in &gf.emit {
+        // Extract node name (strip parenthesized params like "HirInt(v)" → "HirInt")
+        let node_full = &er.node;
+        let node_name = node_full.split('(').next().unwrap_or(node_full);
+        w(o, "HN::"); w(o, node_name); w(o, "(a)=>{\n");
+        let mut tmpl = er.template.clone();
+        let hir_str: &str = node_name;
+        let hirs: Vec<&Rule> = gf.hir.iter().filter(|r| &r.name.as_str() == hir_str).collect();
+        if let Some(hr) = hirs.first() {
+            for sym in get_syms(&hr.production) {
+                if let ProductionSymbolKind::NonTerm(n) = &sym.kind {
+                    let ns = sf(&n.as_str());
+                    let placeholder = format!("%{}", ns);
+                    tmpl = tmpl.replace(&placeholder, &format!("\"&emit_node(&a.{})?\"", ns));
+                }
+            }
+        }
+        let tmpl_escaped = tmpl.replace("\\n", "\\\\n").replace("{", "{{").replace("}", "}}");
+        w(o, &format!("Ok(format!({}))\n", tmpl_escaped));
+        w(o, "}\n");
+    }
+    w(o, "_=>Err(\"no emit\".into())\n");
+    w(o, "}\n}\n\n");
+}
 
 /// Extract the source AST rule name from a HIR production (e.g., HirFnDecl = FnDecl → "FnDecl")
 fn get_hir_source(prod: &Production, ast_rules: &[Rule]) -> &'static str {
