@@ -135,6 +135,7 @@ impl GrammarParser {
                             _ => return Err(format!("unknown assoc: {}", val)),
                         };
                     }
+                    "prefix" | "infix" | "group" => {} // position hint, ignored for now
                     _ => return Err(format!("unknown operator attr: {}", ident)),
                 }
                 self.skip_ws();
@@ -192,7 +193,7 @@ impl GrammarParser {
         let mut seq = Vec::new();
         loop {
             self.skip_ws();
-            if self.peek().map_or(true, |c| c == '}' || c == ';') {
+            if self.peek().map_or(true, |c| c == '}' || c == ';' || c == ')') {
                 break;
             }
             if self.peek() == Some('/') && self.peek_n(1) == Some('/') {

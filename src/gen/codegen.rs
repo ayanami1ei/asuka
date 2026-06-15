@@ -605,17 +605,20 @@ fn kw(s: &str) -> String {
               "impl"=>"Im".into(),"pub"=>"Pb".into(),"shared"=>"Sh".into(),
               "unique"=>"Uq".into(),"weak"=>"Wk".into(),"extern"=>"Ex".into(),
               "import"=>"Ip".into(),"as"=>"As".into(),"break"=>"Br".into(),"continue"=>"Co".into(),
-              _ => format!("K{}", s.to_uppercase()) }
+              "mut"=>"Mut".into(), _ => format!("K{}", s.to_uppercase()) }
 }
 
 fn op_name(s: &str) -> String {
-    match s { "+"=>"Plus","-"=>"Minus","*"=>"Star","/"=>"Slash",
-              "("=>"LP",")"=>"RP","{"=>"LB","}"=>"RB",
-              ";"=>"S",","=>"C","."=>"Dt","::"=>"CC",
-              "->"=>"Ar","=>"=>"FA","="=>"Eq","!"=>"Bg",
-              "<"=>"Lt",">"=>"Gt","&"=>"And","|"=>"Or",
-              "%"=>"Pct","?"=>"Q","_"=>"Us","@"=>"At",
-              _ => "O" }.into()
+    match s { "+"=>"Plus".into(),"-"=>"Minus".into(),"*"=>"Star".into(),"/"=>"Slash".into(),
+              "("=>"LP".into(),")"=>"RP".into(),"{"=>"LB".into(),"}"=>"RB".into(),
+              "["=>"LBK".into(),"]"=>"RBK".into(),
+              ";"=>"S".into(),","=>"C".into(),":"=>"Colon".into(),"."=>"Dt".into(),"::"=>"CC".into(),
+              "->"=>"Ar".into(),"=>"=>"FA".into(),
+              "="=>"Eq".into(),"=="=>"EqEq".into(),"!="=>"Ne".into(),"!"=>"Bg".into(),
+              "<"=>"Lt".into(),">"=>"Gt".into(),"<="=>"Le".into(),">="=>"Ge".into(),
+              "&"=>"And".into(),"|"=>"Or".into(),"%"=>"Pct".into(),"?"=>"Q".into(),
+              "_"=>"Us".into(),"@"=>"At".into(),
+              _ => format!("O_{}", s.chars().map(|c| format!("{:02x}", c as u8)).collect::<Vec<_>>().join("")) }
 }
 
 fn ltok(s: &str) -> String {
@@ -630,5 +633,29 @@ fn sf(s: &str) -> String {
         if c.is_uppercase() && i > 0 { r.push('_'); }
         r.push(c.to_ascii_lowercase());
     }
-    r
+    // Avoid Rust keywords
+    match r.as_str() {
+        "type" => "typ".into(),
+        "ref" => "ref_".into(),
+        "mut" => "mut_".into(),
+        "in" => "in_".into(),
+        "for" => "for_".into(),
+        "if" => "if_".into(),
+        "else" => "else_".into(),
+        "match" => "match_".into(),
+        "return" => "return_".into(),
+        "while" => "while_".into(),
+        "break" => "break_".into(),
+        "continue" => "continue_".into(),
+        "true" => "true_".into(),
+        "false" => "false_".into(),
+        "fn" => "fn_".into(),
+        "struct" => "struct_".into(),
+        "enum" => "enum_".into(),
+        "impl" => "impl_".into(),
+        "pub" => "pub_".into(),
+        "let" => "let_".into(),
+        "extern" => "ext_".into(),
+        _ => r,
+    }
 }
