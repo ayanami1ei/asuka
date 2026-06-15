@@ -197,7 +197,11 @@ fn parser(gf: &GrammarFile, o: &mut String) {
 
 fn has_operator(prod: &Production) -> bool {
     match prod {
-        Production::Seq(syms) => syms.iter().any(|s| matches!(&s.kind, ProductionSymbolKind::NonTerm(n) if n.as_str() == "operator")),
+        Production::Seq(syms) => syms.iter().any(|s| match &s.kind {
+            ProductionSymbolKind::NonTerm(n) => n.as_str() == "operator",
+            ProductionSymbolKind::Group(g) => has_operator(g),
+            _ => false,
+        }),
         Production::Alt(alts) => alts.iter().any(|a| has_operator(a)),
         _ => false,
     }
@@ -290,6 +294,11 @@ fn gen_parse(prod: &Production, rule_name: &str, rules: &HashSet<String>, o: &mu
             for s in syms {
                 match s.quantifier {
                     Quantifier::Repeat => {
+                        // Check for group expansion: (alt | alt)*
+                        if let ProductionSymbolKind::Group(inner) = &s.kind {
+                            gen_group_repeat(inner, rule_name, rules, gf, o, &mut seen, &mut dup, &mut vi, &mut captures);
+                            continue;
+                        }
                         // Generate while loop for *
                         let ns = match &s.kind {
                             ProductionSymbolKind::NonTerm(n) => sf(&n.as_str()),
@@ -304,6 +313,11 @@ fn gen_parse(prod: &Production, rule_name: &str, rules: &HashSet<String>, o: &mu
                         captures.push((field, var, true, false));
                     }
                     Quantifier::Optional => {
+                        // Check for group expansion: (alt | alt)?
+                        if let ProductionSymbolKind::Group(inner) = &s.kind {
+                            gen_group_optional(inner, rule_name, rules, gf, o, &mut seen, &mut dup, &mut vi, &mut captures);
+                            continue;
+                        }
                         // Optional: try parsing, store as Option
                         let ns = match &s.kind {
                             ProductionSymbolKind::NonTerm(n) => sf(&n.as_str()),
@@ -709,6 +723,112 @@ fn emit(gf: &GrammarFile, o: &mut String) {
 }
 
 /// Extract the source AST rule name from a HIR production (e.g., HirFnDecl = FnDecl → "FnDecl")
+/// Expand a Group production with Repeat quantifier (e.g., ("+" | "-") MulExpr)*
+fn gen_group_repeat(inner: &Production, _rule_name: &str, rules: &HashSet<String>, gf: &GrammarFile,
+    o: &mut String, seen: &mut HashSet<String>, dup: &mut u32, vi: &mut u32, captures: &mut Vec<(String, String, bool, bool)>) {
+    // Collect all operator literals from alternatives in the group
+    let mut op_tokens: Vec<String> = Vec::new();
+    if let Production::Alt(alts) = inner {
+        for alt in alts {
+            if let Production::Seq(syms) = alt {
+                if let Some(first) = syms.first() {
+                    if let ProductionSymbolKind::Literal(l) = &first.kind {
+                        op_tokens.push(ltok(l));
+                    }
+                }
+            }
+        }
+    }
+    if op_tokens.is_empty() { return; }
+    
+    // Generate while loop: loop { match token { op1 => { parse body }, op2 => {...}, _ => break } }
+    w(o, "loop{match self.tok().k{\n");
+    if let Production::Alt(alts) = inner {
+        for alt in alts {
+            if let Production::Seq(syms) = alt {
+                let mut iter = syms.iter();
+                // First symbol should be an operator literal
+                let op_lit = match iter.next().map(|s| &s.kind) {
+                    Some(ProductionSymbolKind::Literal(l)) => ltok(l),
+                    _ => continue,
+                };
+                w(o, &format!("TK::{} => {{\n", op_lit));
+                w(o, "self.adv();\n");
+                // Remaining symbols are the RHS
+                for rhs_sym in iter {
+                    match &rhs_sym.kind {
+                        ProductionSymbolKind::NonTerm(n) => {
+                            let ns = sf(&n.as_str());
+                            if rules.contains(&ns) {
+                                w(o, &format!("let _rhs=self.p{}()?;\n", ns));
+                            } else if ns == "ident" {
+                                w(o, "let _rhs=self.pi()?;\n");
+                            } else if ns == "int_literal" || ns == "intlit" {
+                                w(o, "let _rhs=self.pn()?;\n");
+                            } else {
+                                w(o, "let _rhs=self.pi()?;\n");
+                            }
+                        }
+                        ProductionSymbolKind::Literal(l) => {
+                            w(o, &format!("self.e(TK::{})?;\n", ltok(l)));
+                        }
+                        _ => {}
+                    }
+                }
+                w(o, "}\n");
+            }
+        }
+    }
+    w(o, "_=>break}\n}\n");
+}
+
+/// Expand a Group production with Optional quantifier
+fn gen_group_optional(inner: &Production, _rule_name: &str, rules: &HashSet<String>, _gf: &GrammarFile,
+    o: &mut String, _seen: &mut HashSet<String>, _dup: &mut u32, _vi: &mut u32, _captures: &mut Vec<(String, String, bool, bool)>) {
+    // Simple approach: try to match the group content
+    if let Production::Alt(alts) = inner {
+        for alt in alts {
+            if let Production::Seq(syms) = alt {
+                if let Some(first) = syms.first() {
+                    let tk = match &first.kind {
+                        ProductionSymbolKind::Literal(l) => ltok(l),
+                        ProductionSymbolKind::NonTerm(n) => {
+                            let ns = sf(&n.as_str());
+                            if rules.contains(&ns) { return; } // skip rule-based
+                            match ns.as_str() {
+                                "ident" => "Ident".to_string(),
+                                _ => return,
+                            }
+                        }
+                        _ => return,
+                    };
+                    w(o, &format!("if matches!(self.tok().k,TK::{}){{\n", tk));
+                    for s in syms {
+                        match &s.kind {
+                            ProductionSymbolKind::Literal(l) => {
+                                w(o, &format!("self.e(TK::{})?;\n", ltok(l)));
+                            }
+                            ProductionSymbolKind::NonTerm(n) => {
+                                let ns = sf(&n.as_str());
+                                if rules.contains(&ns) {
+                                    w(o, &format!("self.p{}()?;\n", ns));
+                                } else if ns == "ident" {
+                                    w(o, "self.pi()?;\n");
+                                } else {
+                                    w(o, "self.pi()?;\n");
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    w(o, "}\n");
+                }
+            }
+        }
+    }
+}
+
+/// Extract the source AST rule name from a HIR production (e.g., HirFnDecl = FnDecl → "FnDecl")
 fn get_hir_source(prod: &Production, ast_rules: &[Rule]) -> &'static str {
     match prod {
         Production::Seq(syms) => {
@@ -737,6 +857,13 @@ fn get_hir_source(prod: &Production, ast_rules: &[Rule]) -> &'static str {
 
 fn get_syms(p: &Production) -> Vec<&ProductionSymbol> {
     match p { Production::Seq(s) => s.iter().collect(), _ => vec![] }
+}
+
+fn has_group(p: &Production) -> bool {
+    match p {
+        Production::Seq(syms) => syms.iter().any(|s| matches!(s.kind, ProductionSymbolKind::Group(_))),
+        _ => false,
+    }
 }
 
 fn kw(s: &str) -> String {

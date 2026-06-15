@@ -78,6 +78,8 @@ pub enum ProductionSymbolKind {
     Terminal(Symbol),
     Literal(String),
     NonTerm(Symbol),
+    /// Group of productions, e.g., ("+" | "-") MulExpr
+    Group(Box<Production>),
 }
 
 #[derive(Debug, Clone)]

@@ -269,6 +269,7 @@ impl GrammarParser {
         loop {
             self.skip_ws();
             if self.peek() == Some('}') { self.pos += 1; break; }
+            if self.peek().is_none() { return Err("unterminated transform block".into()); }
             let line = self.parse_line()?;
             let trimmed = line.trim();
             if trimmed.is_empty() { continue; }
@@ -320,6 +321,7 @@ impl GrammarParser {
         loop {
             self.skip_ws();
             if self.peek() == Some('}') { self.pos += 1; break; }
+            if self.peek().is_none() { return Err("unterminated emit block".into()); }
             let line = self.parse_line()?;
             if let Some((node, template)) = line.split_once("→") {
                 rules.push(EmitRule {
@@ -339,6 +341,7 @@ impl GrammarParser {
         loop {
             self.skip_ws();
             if self.peek() == Some('}') { self.pos += 1; break; }
+            if self.peek().is_none() { return Err("unterminated pipeline block".into()); }
             let line = self.parse_line()?;
             if let Some((name, passes_str)) = line.split_once("→") {
                 let passes = passes_str.split(',').map(|s| s.trim().to_string()).collect();
@@ -418,10 +421,10 @@ impl GrammarParser {
         s.parse().map_err(|_| format!("invalid number: {}", s))
     }
 
-    /// Parse until newline or block end, return the line content
+    /// Parse until newline or closing brace, return the line content
     fn parse_line(&mut self) -> Result<String, String> {
         let start = self.pos;
-        while self.pos < self.chars.len() && self.chars[self.pos] != '\n' {
+        while self.pos < self.chars.len() && self.chars[self.pos] != '\n' && self.chars[self.pos] != '}' {
             self.pos += 1;
         }
         Ok(self.chars[start..self.pos].iter().collect())

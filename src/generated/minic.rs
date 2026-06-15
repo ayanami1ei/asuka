@@ -6,7 +6,7 @@ pub struct Span{pub sl:u32,pub sc:u32,pub el:u32,pub ec:u32}
 impl Span{pub fn d()->Self{Self{sl:0,sc:0,el:0,ec:0}}pub fn mg(&self,o:&Span)->Self{Self{sl:self.sl,sc:self.sc,el:o.el,ec:o.ec}}}
 
 #[derive(Clone,PartialEq,Debug)]
-pub enum TK{Ident,IntLit,StrLit,KINT,KCHAR,KVOID,If,El,Wh,Fr,Ret,Br,Co,St,KSIZEOF,KTYPEDEF,KCONST,KSTATIC,Ex,KUNSIGNED,KLONG,KSHORT,En,KSWITCH,KCASE,KDEFAULT,KDO,Lt,LP,Ne,Bg,Le,O_2626,Plus,Ar,Eq,Ge,Dt,Star,Gt,And,RP,RBK,Pct,RB,S,Minus,Q,Colon,C,LBK,EqEq,O_7e,O_7c7c,Slash,LB,EOF}
+pub enum TK{Ident,IntLit,StrLit,KINT,KCHAR,KVOID,If,El,Wh,Fr,Ret,Br,Co,St,KSIZEOF,KTYPEDEF,KCONST,KSTATIC,Ex,KUNSIGNED,KLONG,KSHORT,En,KSWITCH,KCASE,KDEFAULT,KDO,Q,RB,LP,C,EqEq,Gt,And,LBK,RP,Plus,RBK,Ar,O_7e,LB,Star,Slash,Pct,Bg,Minus,O_7c7c,S,Lt,Eq,Dt,Colon,Ne,Le,O_2626,Ge,EOF}
 
 #[derive(Clone,Debug)]
 pub struct Tok{pub k:TK,pub s:Span,pub v:String}
@@ -400,27 +400,27 @@ match ast{
 AN::Ident(a)=>Ok(HN::Ident(Box::new(HIdent{s:a.s}))),
 AN::Int(a)=>Ok(HN::Int(Box::new(HInt{s:a.s,v:a.v}))),
 AN::StringLiteral(a)=>Ok(HN::StringLiteral(Box::new(HStringLiteral{s:a.s,v:a.v.clone()}))),
-AN::TypeSpec(_)=>Err("skip".into()),
-AN::CallExpr(_)=>Err("skip".into()),
-AN::Block(_)=>Err("skip".into()),
-AN::VarDecl(_)=>Err("skip".into()),
-AN::IfStmt(_)=>Err("skip".into()),
-AN::Stmt(_)=>Err("skip".into()),
-AN::ReturnStmt(_)=>Err("skip".into()),
+AN::PrimaryExpr(_)=>Err("skip".into()),
+AN::WhileStmt(_)=>Err("skip".into()),
+AN::Expr(_)=>Err("skip".into()),
+AN::ContinueStmt(_)=>Err("skip".into()),
 AN::ParamList(_)=>Err("skip".into()),
 AN::Program(_)=>Err("skip".into()),
-AN::Param(_)=>Err("skip".into()),
 AN::FnDecl(_)=>Err("skip".into()),
-AN::Expr(_)=>Err("skip".into()),
-AN::WhileStmt(_)=>Err("skip".into()),
+AN::SizeofExpr(_)=>Err("skip".into()),
+AN::IfStmt(_)=>Err("skip".into()),
+AN::ReturnStmt(_)=>Err("skip".into()),
+AN::Stmt(_)=>Err("skip".into()),
+AN::Param(_)=>Err("skip".into()),
+AN::Block(_)=>Err("skip".into()),
+AN::CallExpr(_)=>Err("skip".into()),
+AN::Type(_)=>Err("skip".into()),
+AN::VarDecl(_)=>Err("skip".into()),
 AN::ExprStmt(_)=>Err("skip".into()),
-AN::BreakStmt(_)=>Err("skip".into()),
-AN::ContinueStmt(_)=>Err("skip".into()),
 AN::ForStmt(_)=>Err("skip".into()),
 AN::ExprList(_)=>Err("skip".into()),
-AN::PrimaryExpr(_)=>Err("skip".into()),
-AN::SizeofExpr(_)=>Err("skip".into()),
-AN::Type(_)=>Err("skip".into()),
+AN::TypeSpec(_)=>Err("skip".into()),
+AN::BreakStmt(_)=>Err("skip".into()),
 _=>Err("unknown node".into())
 }
 }

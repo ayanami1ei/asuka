@@ -1,0 +1,5 @@
+@lexer { keyword: "if" punct: ";" }
+@ast { Expr = Ident; }
+@hir {}
+@transform {}
+@pipeline { parse → lex, parse_ast; }
