@@ -1,0 +1,12 @@
+[package]
+name = "asuka"
+version = "0.0.1"
+edition = "2021"
+
+[[bin]]
+name = "asuka"
+path = "src/main.rs"
+
+[build-dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
