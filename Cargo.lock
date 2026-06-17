@@ -6,7 +6,16 @@ version = 4
 name = "asuka"
 version = "0.0.1"
 dependencies = [
+ "asuka-derive",
  "serde",
+]
+
+[[package]]
+name = "asuka-derive"
+version = "0.1.0"
+dependencies = [
+ "quote",
+ "syn",
 ]
 
 [[package]]
