@@ -1,4 +1,4 @@
-use asuka::runtime::{self, IrNode, IrNodeKind, VisitorCtx};
+use asuka::runtime::{self, IrNode, IrNodeKind};
 
 /// Derive gives IrNodeKind::kind(). We impl IrNode for emit/lower.
 #[derive(Debug, Clone, asuka::IrNode)]
@@ -8,8 +8,8 @@ struct MyCustomOp {
 }
 
 impl IrNode for MyCustomOp {
-    fn emit(&self, _ctx: &VisitorCtx) -> runtime::VisitResult<String> {
-        Ok(format!("add i64 {}, {}", self.lhs, self.rhs))
+    fn emit(&self) -> String {
+        format!("add i64 {}, {}", self.lhs, self.rhs)
     }
 }
 
@@ -23,7 +23,6 @@ fn test_derive_kind() {
 #[test]
 fn test_emit() {
     let op = MyCustomOp { lhs: 3, rhs: 4 };
-    let ctx = VisitorCtx::new();
-    let result = IrNode::emit(&op, &ctx).unwrap();
+    let result = IrNode::emit(&op);
     assert_eq!(result, "add i64 3, 4");
 }
