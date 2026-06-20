@@ -240,14 +240,14 @@ impl GrammarParser {
         }
         if self.peek() == Some('(') {
             self.pos += 1;
-            let _inner = self.parse_production()?;
+            let inner = self.parse_production()?;
             self.skip_ws();
             self.expect(')')?;
             let mut quant = Quantifier::Exactly;
             if self.peek() == Some('?') { self.pos += 1; quant = Quantifier::Optional; }
             if self.peek() == Some('*') { self.pos += 1; quant = Quantifier::Repeat; }
             return Ok(ProductionSymbol {
-                kind: ProductionSymbolKind::NonTerm(Symbol::intern("")),
+                kind: ProductionSymbolKind::Group(Box::new(inner)),
                 quantifier: quant,
             });
         }

@@ -82,7 +82,7 @@ pub enum ProductionSymbolKind {
     Group(Box<Production>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Quantifier {
     Exactly,
     Optional,
