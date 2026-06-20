@@ -134,4 +134,11 @@ asuka/
 
 Ayanami 是 Asuka 框架的一个实现。Asuka 提供前端骨架（lex/parse/Node），Ayanami 提供中后端（lowering/类型检查/代码生成）。
 
-Ayanami 的分支 `grammar-driven` 正在将手写 parser 替换为 Asuka 生成的代码，并将 lowering 逐步改为 `VisitorCtx::on()` 注册。
+Ayanami 已将手写 parser 替换为 Asuka 生成的代码（`feat/ast-refactor` → `rust`）。所有 AST 节点通过 `.grammar` 文件定义，解析器自动生成，lowering 经由 `gen_bridge` 转换为类型安全的 AST 枚举后进入传统 pipeline。
+
+## 最近更新
+
+- **Group 产生式修复** — `(...)` 分组现在正确生成 `Group(Production)` 而非空的 `NonTerm`
+- **优先级 climbing** — `Expr operator Expr` 模式自动生成 precedence climbing 解析器，使用 grammar 中定义的 `prec:N, assoc:left/right`
+- **Repeat/List 生成** — `(sep item)*` 模式生成带逗号分隔符的循环解析代码
+- **struct_llvm_size** — 根据结构体字段定义计算实际 LLVM size，修复共享堆分配越界
