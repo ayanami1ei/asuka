@@ -11,7 +11,6 @@ pub fn generate(gf: &GrammarFile) -> String {
     w(&mut o, &format!("pub const KEYWORDS: &[&str] = &{:?};\n\n", keywords));
 
     // Collect all operator/punct symbols for lexer matching
-    let mut symbols: Vec<String> = Vec::new();
     if let Some(lex) = &gf.lexer {
         let mut set: HashSet<&str> = HashSet::new();
         for op in &lex.operators { set.insert(&op.symbol); }
@@ -102,8 +101,8 @@ pub fn generate(gf: &GrammarFile) -> String {
     w(&mut o, "        Ok(asuka::runtime::Value::Node(Box::new(node)))\n");
     w(&mut o, "    }\n\n");
 
-    // Detect if we need a precedence climbing parser for binary expressions
-    let has_binary_expr = gf.ast.iter().any(|r| is_binary_expr_rule(&r.production));
+    // 预留：二进制表达式的优先级爬升检测（当前未使用）
+    let _has_binary_expr = gf.ast.iter().any(|r| is_binary_expr_rule(&r.production));
     
     for r in &gf.ast {
         let name = &r.name.as_str();
@@ -131,6 +130,7 @@ pub fn generate(gf: &GrammarFile) -> String {
     o
 }
 
+#[allow(dead_code)] // 生成器工具函数，保留供后续使用
 fn set_field(n: &str, field: &str, val: &str) -> String {
     format!("let {} = {}.set(\"{}\", {});", n, n, field, val)
 }
@@ -138,7 +138,6 @@ fn set_field(n: &str, field: &str, val: &str) -> String {
 fn gen_node_builder(prod: &Production, rules: &HashSet<String>, o: &mut String, indent: &str) {
     match prod {
         Production::Seq(syms) => {
-            let mut vi = 0u32;
             for s in syms {
                 match &s.kind {
                     ProductionSymbolKind::Literal(lit) => {
@@ -178,7 +177,6 @@ fn gen_node_builder(prod: &Production, rules: &HashSet<String>, o: &mut String, 
                             w(o, &format!("{}n.set(\"list\", asuka::runtime::Value::Nodes(list_items)); }}\n", indent));
                             continue; 
                         }
-                        let var = format!("v{}", vi); vi += 1;
                         let field = sf(&n2.as_str());
                         let method = if rules.contains(&ns) || is_builtin(&ns) {
                             match ns.as_str() {
@@ -232,7 +230,6 @@ fn gen_node_builder(prod: &Production, rules: &HashSet<String>, o: &mut String, 
         }
         Production::Alt(alts) => {
             // Simple try-each approach
-            let mut alt_idx = 0u32;
             for alt in alts {
                 if let Production::Seq(syms) = alt {
                     if let Some(first) = syms.first() {
@@ -252,13 +249,11 @@ fn gen_node_builder(prod: &Production, rules: &HashSet<String>, o: &mut String, 
                             ProductionSymbolKind::Literal(l) => format!("self.0.tok().kind == \"{}\"", l.to_uppercase()),
                             _ => continue,
                         };
-                        let struct_name = &alt_idx;
                         w(o, &format!("{}if {} {{\n", indent, pred));
-                        let mut inner_indent = format!("{}    ", indent);
+                        let inner_indent = format!("{}    ", indent);
                         let alt_name = name_for_alt(alts, alt);
                         gen_alt_seq_builder(syms, &alt_name, rules, o, &inner_indent);
                         w(o, &format!("{}}}\n", indent));
-                        alt_idx += 1;
                     }
                 }
             }
@@ -328,9 +323,8 @@ fn gen_node_builder(prod: &Production, rules: &HashSet<String>, o: &mut String, 
     }
 }
 
-fn gen_alt_seq_builder(syms: &[ProductionSymbol], rule_name: &str, rules: &HashSet<String>, o: &mut String, indent: &str) {
+fn gen_alt_seq_builder(syms: &[ProductionSymbol], rule_name: &str, _rules: &HashSet<String>, o: &mut String, indent: &str) {
     // Generate code to build a Node for this specific alternative
-    let field_name = sf(rule_name);
     w(o, &format!("{}let mut node = asuka::runtime::Node::new(\"{}\");\n", indent, rule_name));
     for s in syms {
         match &s.kind {
