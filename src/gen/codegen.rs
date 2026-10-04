@@ -425,7 +425,6 @@ fn gen_binary_expr_parser(rule_name: &str, lexer: &Option<LexerDef>, o: &mut Str
     w(o, "        if let Ok(val) = self.plambda_expr() { return Ok(val); }\n");
     w(o, "        if let Ok(val) = self.pmove_expr() { return Ok(val); }\n");
     w(o, "        if let Ok(val) = self.pclone_expr() { return Ok(val); }\n");
-    w(o, "        if let Ok(val) = self.pto_unique_expr() { return Ok(val); }\n");
     w(o, "        if let Ok(val) = self.pref_expr() { return Ok(val); }\n");
     w(o, "        if let Ok(val) = self.ptry_op() { return Ok(val); }\n");
     w(o, "        if let Ok(val) = self.pstruct_literal() { return Ok(val); }\n");
